@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <sstream>
 
 class Response {
 private:
@@ -17,6 +18,9 @@ public:
     void setHeader(const std::string& key, const std::string& value);
     void setBody(const std::string& content);
     std::string toString() const;
+    
+    // Helper function to get Content-Type from file extension
+    static std::string getContentType(const std::string& path);
 };
 
 #endif

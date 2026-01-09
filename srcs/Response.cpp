@@ -1,5 +1,4 @@
-#include "../includes/Response.hpp"
-#include <sstream>
+#include "Response.hpp"
 
 Response::Response() : status_code(200), status_message("OK") {}
 
@@ -14,6 +13,11 @@ void Response::setHeader(const std::string& key, const std::string& value) {
 
 void Response::setBody(const std::string& content) {
     body = content;
+    
+    // Automatically set Content-Length
+    std::ostringstream oss;
+    oss << content.length();
+    setHeader("Content-Length", oss.str());
 }
 
 std::string Response::toString() const {
@@ -28,11 +32,46 @@ std::string Response::toString() const {
         response << it->first << ": " << it->second << "\r\n";
     }
     
-    // Empty line
+    // Empty line separates headers from body
     response << "\r\n";
     
     // Body
     response << body;
     
     return response.str();
+}
+
+// Get Content-Type based on file extension
+std::string Response::getContentType(const std::string& path) {
+    // Find the extension
+    size_t dot_pos = path.find_last_of('.');
+    if (dot_pos == std::string::npos) {
+        return "application/octet-stream"; // Default for unknown types
+    }
+    
+    std::string ext = path.substr(dot_pos);
+    
+    // Map extensions to MIME types
+    if (ext == ".html" || ext == ".htm")
+        return "text/html";
+    else if (ext == ".css")
+        return "text/css";
+    else if (ext == ".js")
+        return "text/javascript";
+    else if (ext == ".json")
+        return "application/json";
+    else if (ext == ".txt")
+        return "text/plain";
+    else if (ext == ".jpg" || ext == ".jpeg")
+        return "image/jpeg";
+    else if (ext == ".png")
+        return "image/png";
+    else if (ext == ".gif")
+        return "image/gif";
+    else if (ext == ".pdf")
+        return "application/pdf";
+    else if (ext == ".xml")
+        return "application/xml";
+    else
+        return "application/octet-stream";
 }
