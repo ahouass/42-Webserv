@@ -1,8 +1,25 @@
 #include <iostream>
-#include "Server.hpp"
+#include <csignal>
+#include "ServerManager.hpp"
 #include "Config.hpp"
+#include <cstdlib>
+
+// Global pointer for signal handling
+ServerManager* g_server_manager = NULL;
+
+void signalHandler(int signum) {
+    (void)signum;
+    std::cout << "\n\nReceived interrupt signal. Shutting down..." << std::endl;
+    if (g_server_manager) {
+        g_server_manager->stop();
+    }
+    exit(0);
+}
 
 int main(int argc, char** argv) {
+    // Setup signal handler for Ctrl+C
+    signal(SIGINT, signalHandler);
+    
     // Default config file
     std::string config_file = "config/default.conf";
     
@@ -27,26 +44,24 @@ int main(int argc, char** argv) {
     // Get servers from config
     const std::vector<ServerConfig>& servers = config.getServers();
     
-    // For now, just start the first server
-    // Later you'll create multiple Server objects for multiple server blocks
+    // Check if we have any servers
     if (servers.empty()) {
         std::cerr << "No servers configured" << std::endl;
         return 1;
     }
     
-    const ServerConfig& server_config = servers[0];
+    // Create server manager
+    ServerManager manager;
+    g_server_manager = &manager;
     
-    // Create server with config values
-    Server server(server_config.port, server_config.root);
-    
-    // Start server
-    if (!server.start()) {
-        std::cerr << "Failed to start server" << std::endl;
+    // Initialize all servers
+    if (!manager.initServers(servers)) {
+        std::cerr << "Failed to initialize servers" << std::endl;
         return 1;
     }
     
-    // Run server (infinite loop)
-    server.run();
+    // Run server manager (infinite loop with poll)
+    manager.run();
     
     return 0;
 }
