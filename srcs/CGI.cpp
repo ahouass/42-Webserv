@@ -257,28 +257,31 @@ CGIStatus CGI::execute() {
         
         // Change to script directory for relative path access
         std::string script_dir = script_path;
+        std::string script_filename = script_path;
         size_t last_slash = script_dir.find_last_of('/');
         if (last_slash != std::string::npos) {
             script_dir = script_dir.substr(0, last_slash);
+            script_filename = script_path.substr(last_slash + 1);
             chdir(script_dir.c_str());
         }
         
         // Build environment
         char** env = buildEnvArray();
         
-        // Build argv
+        // Build argv - use just the filename since we chdir'd to script directory
         char* argv[3];
         if (!cgi_interpreter.empty()) {
             // Use interpreter (e.g., python3 script.py)
             argv[0] = const_cast<char*>(cgi_interpreter.c_str());
-            argv[1] = const_cast<char*>(script_path.c_str());
+            argv[1] = const_cast<char*>(script_filename.c_str());
             argv[2] = NULL;
             execve(cgi_interpreter.c_str(), argv, env);
         } else {
-            // Execute script directly
-            argv[0] = const_cast<char*>(script_path.c_str());
+            // Execute script directly - use ./script for current directory
+            std::string exec_path = "./" + script_filename;
+            argv[0] = const_cast<char*>(exec_path.c_str());
             argv[1] = NULL;
-            execve(script_path.c_str(), argv, env);
+            execve(exec_path.c_str(), argv, env);
         }
         
         // If execve returns, there was an error
