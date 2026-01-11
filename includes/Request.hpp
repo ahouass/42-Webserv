@@ -3,6 +3,21 @@
 
 #include <string>
 #include <map>
+#include <vector>
+
+// Structure to hold a single multipart form field
+struct MultipartPart {
+    std::string name;                   // Field name
+    std::string filename;               // Original filename (empty if not a file)
+    std::string content_type;           // Content-Type of this part
+    std::string charset;                // Character set (e.g., "utf-8")
+    std::string content_transfer_encoding; // e.g., "binary", "base64", "7bit"
+    std::string data;                   // The actual content/data
+    bool is_file;                       // True if this part is a file upload
+    size_t data_size;                   // Original data size before any decoding
+    
+    MultipartPart() : is_file(false), data_size(0) {}
+};
 
 class Request {
 private:
@@ -11,14 +26,64 @@ private:
     std::string version;     // HTTP/1.1
     std::map<std::string, std::string> headers;
     std::string body;
-
+    std::string raw_data;    // Accumulated raw data
+    bool headers_complete;   // Have we parsed all headers?
+    bool body_complete;      // Is the full body received?
+    size_t content_length;   // Expected body size
+    
+    // Multipart data
+    std::vector<MultipartPart> multipart_parts;
+    bool multipart_parsed;
+    
 public:
     Request();
+    void reset();
+    
+    // Incremental parsing for non-blocking I/O
+    void appendData(const std::string& data);
+    bool parseHeaders();
+    bool isHeadersComplete() const { return headers_complete; }
+    bool isComplete() const { return headers_complete && body_complete; }
+    
+    // Legacy single-call parse
     void parse(const std::string& raw_request);
     
+    // Getters
     std::string getMethod() const { return method; }
     std::string getPath() const { return path; }
+    std::string getVersion() const { return version; }
+    std::string getBody() const { return body; }
     std::string getHeader(const std::string& key) const;
+    size_t getContentLength() const { return content_length; }
+    
+    // For multipart parsing
+    std::string getBoundary() const;
+    bool isMultipart() const;
+    bool parseMultipart();
+    const std::vector<MultipartPart>& getParts() const { return multipart_parts; }
+    bool hasFileParts() const;
+    size_t getFileCount() const;
+    size_t getTotalUploadSize() const;
+    
+    // URL-encoded form parsing
+    std::map<std::string, std::string> parseFormData() const;
+    
+    // Query string parsing
+    std::map<std::string, std::string> parseQueryString() const;
+    std::string getQueryParam(const std::string& key) const;
+    
+    // Utility functions
+    static std::string urlDecode(const std::string& str);
+    static std::string base64Decode(const std::string& str);
+    static std::string quotedPrintableDecode(const std::string& str);
+    
+private:
+    void parseContentDisposition(const std::string& header, std::string& name, std::string& filename);
+    void parseContentType(const std::string& header, std::string& mime_type, std::string& charset);
+    std::string trim(const std::string& str) const;
+    std::string extractQuotedValue(const std::string& str, const std::string& key) const;
+    std::string extractUnquotedValue(const std::string& str, const std::string& key) const;
+    bool findBoundaryPosition(const std::string& data, const std::string& boundary, size_t start, size_t& pos) const;
 };
 
 #endif

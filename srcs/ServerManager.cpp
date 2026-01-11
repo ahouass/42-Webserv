@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <cstring>
 #include <fcntl.h>
+#include <errno.h>
 
 ServerManager::ServerManager() {}
 
@@ -95,24 +96,109 @@ void ServerManager::handleNewConnection(int server_index) {
     // Add client to poll
     addPollFd(client_fd, POLLIN);
     fd_to_server[client_fd] = server_index;
+    
+    // Initialize client state for incremental parsing
+    ClientState state;
+    state.server_index = server_index;
+    client_states[client_fd] = state;
 }
 
 void ServerManager::handleClientRequest(int client_fd) {
-    int server_index = fd_to_server[client_fd];
-    Server* server = servers[server_index];
+    // Read available data from socket
+    char buffer[8192];
+    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
     
-    std::cout << "Handling request on server " << (server_index + 1) 
+    if (bytes_read < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No data available right now, will try again later
+            return;
+        }
+        std::cerr << "Read error on client fd " << client_fd << std::endl;
+        closeClient(client_fd);
+        return;
+    }
+    
+    if (bytes_read == 0) {
+        // Client closed connection
+        std::cout << "Client closed connection" << std::endl;
+        closeClient(client_fd);
+        return;
+    }
+    
+    buffer[bytes_read] = '\0';
+    
+    // Get client state
+    std::map<int, ClientState>::iterator it = client_states.find(client_fd);
+    if (it == client_states.end()) {
+        std::cerr << "No state found for client fd " << client_fd << std::endl;
+        closeClient(client_fd);
+        return;
+    }
+    
+    ClientState& state = it->second;
+    Request& req = state.request;
+    
+    // Append received data to request
+    req.appendData(std::string(buffer, bytes_read));
+    
+    // Try to parse headers if not done yet
+    if (!req.isHeadersComplete()) {
+        if (!req.parseHeaders()) {
+            // Headers not complete yet, wait for more data
+            return;
+        }
+        std::cout << "Headers complete - Method: " << req.getMethod() 
+                  << " Path: " << req.getPath() << std::endl;
+        
+        // Check body size limit early
+        Server* server = servers[state.server_index];
+        size_t max_size = server->getConfig().client_max_body_size;
+        if (req.getContentLength() > max_size) {
+            std::cout << "Request body too large (early check): " << req.getContentLength() 
+                      << " > " << max_size << std::endl;
+            
+            // Send 413 and close
+            Response res;
+            res.setStatus(413, "Payload Too Large");
+            res.setHeader("Content-Type", "text/html");
+            res.setHeader("Connection", "close");
+            res.setBody("<html><body><h1>413 Payload Too Large</h1></body></html>");
+            
+            std::string response_str = res.toString();
+            send(client_fd, response_str.c_str(), response_str.length(), 0);
+            closeClient(client_fd);
+            return;
+        }
+    }
+    
+    // Check if request is complete (headers + full body)
+    if (!req.isComplete()) {
+        // Still waiting for body data
+        std::cout << "Waiting for more body data... (have " << req.getBody().length() 
+                  << "/" << req.getContentLength() << " bytes)" << std::endl;
+        return;
+    }
+    
+    // Request is complete, process it
+    std::cout << "Request complete, processing..." << std::endl;
+    
+    Server* server = servers[state.server_index];
+    std::cout << "Handling request on server " << (state.server_index + 1) 
               << " (port " << server->getPort() << ")" << std::endl;
     
-    // Let the server handle the client
-    server->handleClient(client_fd);
+    // Let the server handle the complete request (use pre-parsed request)
+    server->handleClient(client_fd, req);
     
-    // Remove client from poll and close
+    // Close connection after response
+    closeClient(client_fd);
+    std::cout << "--- Client disconnected ---\n" << std::endl;
+}
+
+void ServerManager::closeClient(int client_fd) {
     removePollFd(client_fd);
     fd_to_server.erase(client_fd);
+    client_states.erase(client_fd);
     close(client_fd);
-    
-    std::cout << "--- Client disconnected ---\n" << std::endl;
 }
 
 void ServerManager::addPollFd(int fd, short events) {
@@ -141,6 +227,7 @@ void ServerManager::stop() {
     }
     poll_fds.clear();
     fd_to_server.clear();
+    client_states.clear();
     
     // Delete all servers
     for (size_t i = 0; i < servers.size(); i++) {

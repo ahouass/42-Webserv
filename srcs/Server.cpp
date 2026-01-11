@@ -1,4 +1,5 @@
 #include "Server.hpp"
+#include "CGI.hpp"
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -9,6 +10,9 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#include <ctime>
+#include <cstdlib>
+#include <cstdio>
 
 Server::Server() : server_fd(-1) {
     // Default config
@@ -86,7 +90,7 @@ void Server::run() {
 
 void Server::handleClient(int client_fd) {
     // Read request
-    char buffer[4096] = {0};
+    char buffer[8192] = {0};
     int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
     
     if (bytes_read < 0) {
@@ -105,8 +109,13 @@ void Server::handleClient(int client_fd) {
     
     // Parse request
     Request req;
-    req.parse(std::string(buffer));
+    req.parse(std::string(buffer, bytes_read));
     
+    // Handle with parsed request
+    handleClient(client_fd, req);
+}
+
+void Server::handleClient(int client_fd, const Request& req) {
     // Handle request and create response
     Response res = handleRequest(req);
     
@@ -134,7 +143,38 @@ Response Server::handleRequest(const Request& req) {
         return serve405();
     }
     
-    // Build file path
+    // Check body size limits for POST
+    if (req.getMethod() == "POST") {
+        size_t max_size = config.client_max_body_size;
+        if (location && location->client_max_body_size > 0) {
+            max_size = location->client_max_body_size;
+        }
+        if (req.getContentLength() > max_size) {
+            std::cout << "Request body too large: " << req.getContentLength() 
+                      << " > " << max_size << std::endl;
+            return serve413();
+        }
+    }
+    
+    // Check for CGI request
+    if (location && !location->cgi_extension.empty()) {
+        if (CGI::isCGIRequest(req.getPath(), location->cgi_extension)) {
+            std::cout << "CGI request detected" << std::endl;
+            return handleCGI(req, location);
+        }
+    }
+    
+    // Handle POST requests (non-CGI)
+    if (req.getMethod() == "POST") {
+        return handlePost(req, location);
+    }
+    
+    // Handle DELETE requests
+    if (req.getMethod() == "DELETE") {
+        return handleDelete(req, location);
+    }
+    
+    // Build file path for GET
     std::string file_path = buildFilePath(req.getPath(), location);
     std::cout << "File path: " << file_path << std::endl;
     
@@ -360,12 +400,35 @@ Response Server::serve404() {
     return serveErrorPage(404, "Not Found");
 }
 
+Response Server::serve403() {
+    return serveErrorPage(403, "Forbidden");
+}
+
 Response Server::serve405() {
     return serveErrorPage(405, "Method Not Allowed");
 }
 
 Response Server::serve500() {
     return serveErrorPage(500, "Internal Server Error");
+}
+
+Response Server::serve200(const std::string& message) {
+    Response res;
+    res.setStatus(200, "OK");
+    res.setHeader("Content-Type", "application/json");
+    
+    std::ostringstream json;
+    json << "{\"status\":\"success\",\"message\":\"" << message << "\"}";
+    res.setBody(json.str());
+    
+    return res;
+}
+
+Response Server::serve204() {
+    Response res;
+    res.setStatus(204, "No Content");
+    // 204 responses must not have a body
+    return res;
 }
 
 std::string Server::readFile(const std::string& path) {
@@ -392,6 +455,375 @@ bool Server::isDirectory(const std::string& path) {
         return false;
     }
     return S_ISDIR(buffer.st_mode);
+}
+
+bool Server::writeFile(const std::string& path, const std::string& content) {
+    std::ofstream file(path.c_str(), std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    file.write(content.c_str(), content.length());
+    file.close();
+    return file.good();
+}
+
+Response Server::serve413() {
+    return serveErrorPage(413, "Payload Too Large");
+}
+
+Response Server::serve201(const std::string& message) {
+    Response res;
+    res.setStatus(201, "Created");
+    res.setHeader("Content-Type", "application/json");
+    
+    std::ostringstream json;
+    json << "{\"status\":\"success\",\"message\":\"" << message << "\"}";
+    res.setBody(json.str());
+    
+    return res;
+}
+
+std::string Server::getUploadPath(const LocationConfig* location) const {
+    if (location && !location->upload_store.empty()) {
+        return location->upload_store;
+    }
+    return config.root + "/uploads";
+}
+
+std::string Server::extractFilename(const std::string& content_disposition) const {
+    // Look for filename="something"
+    size_t pos = content_disposition.find("filename=\"");
+    if (pos == std::string::npos) {
+        pos = content_disposition.find("filename=");
+        if (pos == std::string::npos) {
+            return "";
+        }
+        pos += 9;
+        size_t end = content_disposition.find_first_of(";\r\n ", pos);
+        if (end == std::string::npos) {
+            return content_disposition.substr(pos);
+        }
+        return content_disposition.substr(pos, end - pos);
+    }
+    pos += 10;
+    size_t end = content_disposition.find('"', pos);
+    if (end == std::string::npos) {
+        return "";
+    }
+    return content_disposition.substr(pos, end - pos);
+}
+
+std::string Server::generateFilename() const {
+    std::ostringstream oss;
+    oss << "upload_" << std::time(NULL) << "_" << (std::rand() % 10000);
+    return oss.str();
+}
+
+Response Server::handleCGI(const Request& req, const LocationConfig* location) {
+    std::cout << "=== CGI Request ===" << std::endl;
+    
+    // Get the script path
+    std::string script_path = CGI::getScriptPath(req.getPath(), config.root, location->cgi_extension);
+    std::cout << "Script path: " << script_path << std::endl;
+    
+    // Check if script exists
+    struct stat st;
+    if (stat(script_path.c_str(), &st) != 0) {
+        std::cout << "CGI script not found: " << script_path << std::endl;
+        return serve404();
+    }
+    
+    // Check if script is executable (for direct execution without interpreter)
+    if (location->cgi_path.empty() && !(st.st_mode & S_IXUSR)) {
+        std::cout << "CGI script not executable: " << script_path << std::endl;
+        return serve403();
+    }
+    
+    // Create CGI handler
+    CGI cgi;
+    
+    // Setup CGI from request
+    cgi.setupFromRequest(req, script_path, location->cgi_path, config.root, 
+                         config.port, config.server_name);
+    
+    // Set timeout (30 seconds default)
+    cgi.setTimeout(30);
+    
+    // Execute CGI script
+    CGIStatus status = cgi.execute();
+    
+    if (status != CGI_SUCCESS) {
+        std::cout << "CGI execution failed with status: " << status << std::endl;
+    }
+    
+    // Build and return response
+    return cgi.buildResponse();
+}
+
+Response Server::handlePost(const Request& req, const LocationConfig* location) {
+    std::cout << "Handling POST request" << std::endl;
+    std::cout << "Content-Type: " << req.getHeader("Content-Type") << std::endl;
+    std::cout << "Content-Length: " << req.getContentLength() << std::endl;
+    std::cout << "Body size: " << req.getBody().length() << std::endl;
+    
+    // Check if this is a multipart upload
+    if (req.isMultipart()) {
+        return handleMultipartUpload(req, location);
+    }
+    
+    // Handle raw POST data (application/x-www-form-urlencoded or raw file)
+    return handleRawUpload(req, location);
+}
+
+Response Server::handleMultipartUpload(const Request& req, const LocationConfig* location) {
+    std::cout << "Processing multipart/form-data upload" << std::endl;
+    
+    // Parse multipart data
+    Request& mutable_req = const_cast<Request&>(req);
+    if (!mutable_req.parseMultipart()) {
+        std::cout << "Failed to parse multipart data" << std::endl;
+        
+        // Provide more detailed error information
+        std::string boundary = req.getBoundary();
+        std::ostringstream error_msg;
+        error_msg << "{\"status\":\"error\",\"message\":\"Failed to parse multipart data\"";
+        if (boundary.empty()) {
+            error_msg << ",\"detail\":\"No boundary found in Content-Type header\"";
+        } else {
+            error_msg << ",\"detail\":\"Boundary parsing failed. Check data format.\"";
+            error_msg << ",\"boundary\":\"" << boundary << "\"";
+        }
+        error_msg << ",\"body_size\":" << req.getBody().length() << "}";
+        
+        Response res;
+        res.setStatus(400, "Bad Request");
+        res.setHeader("Content-Type", "application/json");
+        res.setBody(error_msg.str());
+        return res;
+    }
+    
+    const std::vector<MultipartPart>& parts = req.getParts();
+    std::string upload_dir = getUploadPath(location);
+    
+    // Log parsing summary
+    std::cout << "Parsed " << parts.size() << " parts, " << req.getFileCount() 
+              << " files, total upload size: " << req.getTotalUploadSize() << " bytes" << std::endl;
+    
+    // Create upload directory if it doesn't exist
+    mkdir(upload_dir.c_str(), 0755);
+    
+    int files_saved = 0;
+    std::vector<std::string> saved_files;
+    std::vector<size_t> file_sizes;
+    std::vector<std::string> file_types;
+    
+    for (size_t i = 0; i < parts.size(); i++) {
+        const MultipartPart& part = parts[i];
+        
+        // Only process file uploads
+        if (!part.is_file) {
+            std::cout << "Skipping non-file field: name=\"" << part.name 
+                      << "\" value=\"" << (part.data.length() < 100 ? part.data : part.data.substr(0, 100) + "...") 
+                      << "\"" << std::endl;
+            continue;
+        }
+        
+        if (part.filename.empty()) {
+            std::cout << "Skipping part with empty filename" << std::endl;
+            continue;
+        }
+        
+        if (part.data.empty()) {
+            std::cout << "Skipping empty file: " << part.filename << std::endl;
+            continue;
+        }
+        
+        // Generate unique filename if file already exists
+        std::string base_path = upload_dir + "/" + part.filename;
+        std::string file_path = base_path;
+        int suffix = 1;
+        
+        struct stat st;
+        while (stat(file_path.c_str(), &st) == 0) {
+            // File exists, add suffix
+            size_t dot_pos = part.filename.find_last_of('.');
+            std::ostringstream new_name;
+            if (dot_pos != std::string::npos) {
+                new_name << upload_dir << "/" << part.filename.substr(0, dot_pos) 
+                         << "_" << suffix << part.filename.substr(dot_pos);
+            } else {
+                new_name << upload_dir << "/" << part.filename << "_" << suffix;
+            }
+            file_path = new_name.str();
+            suffix++;
+        }
+        
+        std::cout << "Saving file: " << part.filename << " (" << part.data.length() << " bytes)"
+                  << " type=\"" << part.content_type << "\"" 
+                  << " to " << file_path << std::endl;
+        
+        if (writeFile(file_path, part.data)) {
+            files_saved++;
+            // Extract just the filename from the path
+            size_t last_slash = file_path.find_last_of('/');
+            std::string saved_name = (last_slash != std::string::npos) 
+                ? file_path.substr(last_slash + 1) : file_path;
+            saved_files.push_back(saved_name);
+            file_sizes.push_back(part.data.length());
+            file_types.push_back(part.content_type);
+            std::cout << "File saved successfully as: " << saved_name << std::endl;
+        } else {
+            std::cout << "Failed to save file: " << part.filename << std::endl;
+            return serve500();
+        }
+    }
+    
+    if (files_saved == 0) {
+        std::cout << "No files were uploaded" << std::endl;
+        Response res;
+        res.setStatus(400, "Bad Request");
+        res.setHeader("Content-Type", "application/json");
+        res.setBody("{\"status\":\"error\",\"message\":\"No files found in upload. Make sure the form field is a file input.\"}");
+        return res;
+    }
+    
+    // Build success response with detailed file information
+    std::ostringstream json;
+    json << "{\"status\":\"success\",\"message\":\"" << files_saved << " file(s) uploaded\",\"files\":[";
+    for (size_t i = 0; i < saved_files.size(); i++) {
+        if (i > 0) json << ",";
+        json << "{\"name\":\"" << saved_files[i] << "\""
+             << ",\"size\":" << file_sizes[i]
+             << ",\"type\":\"" << file_types[i] << "\"}";
+    }
+    json << "],\"total_size\":" << req.getTotalUploadSize() << "}";
+    
+    Response res;
+    res.setStatus(201, "Created");
+    res.setHeader("Content-Type", "application/json");
+    res.setBody(json.str());
+    return res;
+}
+
+Response Server::handleRawUpload(const Request& req, const LocationConfig* location) {
+    std::cout << "Processing raw upload" << std::endl;
+    
+    std::string body = req.getBody();
+    if (body.empty()) {
+        Response res;
+        res.setStatus(400, "Bad Request");
+        res.setHeader("Content-Type", "application/json");
+        res.setBody("{\"status\":\"error\",\"message\":\"Empty request body\"}");
+        return res;
+    }
+    
+    std::string upload_dir = getUploadPath(location);
+    mkdir(upload_dir.c_str(), 0755);
+    
+    // Generate filename based on Content-Type or use generic
+    std::string filename = generateFilename();
+    std::string ct = req.getHeader("Content-Type");
+    
+    if (ct.find("text/") != std::string::npos) {
+        filename += ".txt";
+    } else if (ct.find("application/json") != std::string::npos) {
+        filename += ".json";
+    } else if (ct.find("image/") != std::string::npos) {
+        if (ct.find("jpeg") != std::string::npos || ct.find("jpg") != std::string::npos) {
+            filename += ".jpg";
+        } else if (ct.find("png") != std::string::npos) {
+            filename += ".png";
+        } else if (ct.find("gif") != std::string::npos) {
+            filename += ".gif";
+        }
+    } else {
+        filename += ".bin";
+    }
+    
+    std::string file_path = upload_dir + "/" + filename;
+    std::cout << "Saving raw upload to: " << file_path << std::endl;
+    
+    if (!writeFile(file_path, body)) {
+        std::cout << "Failed to save file!" << std::endl;
+        return serve500();
+    }
+    
+    std::cout << "File saved: " << body.length() << " bytes" << std::endl;
+    return serve201("File uploaded as " + filename);
+}
+
+bool Server::deleteFile(const std::string& path) {
+    if (remove(path.c_str()) == 0) {
+        return true;
+    }
+    return false;
+}
+
+Response Server::handleDelete(const Request& req, const LocationConfig* location) {
+    std::cout << "Handling DELETE request" << std::endl;
+    std::cout << "Request path: " << req.getPath() << std::endl;
+    
+    std::string file_path;
+    
+    // If location has upload_store, use it as base for DELETE
+    if (location && !location->upload_store.empty()) {
+        // Extract filename from URI (remove location prefix)
+        std::string uri = req.getPath();
+        std::string filename;
+        
+        if (uri.find(location->path) == 0) {
+            filename = uri.substr(location->path.length());
+            // Remove leading slash if present
+            if (!filename.empty() && filename[0] == '/') {
+                filename = filename.substr(1);
+            }
+        } else {
+            filename = uri;
+        }
+        
+        file_path = location->upload_store + "/" + filename;
+    } else {
+        // Fall back to regular file path building
+        file_path = buildFilePath(req.getPath(), location);
+    }
+    
+    std::cout << "Delete target: " << file_path << std::endl;
+    
+    // Check if file exists
+    if (!fileExists(file_path)) {
+        std::cout << "File not found for deletion: " << file_path << std::endl;
+        return serve404();
+    }
+    
+    // Don't allow deleting directories (for safety)
+    if (isDirectory(file_path)) {
+        std::cout << "Cannot delete directory: " << file_path << std::endl;
+        return serve403();
+    }
+    
+    // Security check: ensure we're only deleting within allowed paths
+    std::string upload_dir = getUploadPath(location);
+    std::string root = config.root;
+    
+    // Ensure the file is within the server root or upload directory
+    bool in_root = (file_path.find(root) == 0);
+    bool in_upload = (!upload_dir.empty() && file_path.find(upload_dir) == 0);
+    
+    if (!in_root && !in_upload) {
+        std::cout << "Delete forbidden - file outside allowed paths" << std::endl;
+        return serve403();
+    }
+    
+    // Attempt to delete the file
+    if (!deleteFile(file_path)) {
+        std::cout << "Failed to delete file: " << file_path << std::endl;
+        return serve500();
+    }
+    
+    std::cout << "File deleted successfully: " << file_path << std::endl;
+    
+    // Return 200 with message
+    return serve200("File deleted successfully");
 }
 
 void Server::stop() {
