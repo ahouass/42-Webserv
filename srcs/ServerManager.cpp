@@ -1,4 +1,5 @@
 #include "ServerManager.hpp"
+#include "Response.hpp"
 #include <iostream>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -182,9 +183,40 @@ void ServerManager::handleClientRequest(int client_fd) {
     // Request is complete, process it
     std::cout << "Request complete, processing..." << std::endl;
     
-    Server* server = servers[state.server_index];
-    std::cout << "Handling request on server " << (state.server_index + 1) 
-              << " (port " << server->getPort() << ")" << std::endl;
+    // Get the original server (based on which port received the connection)
+    Server* original_server = servers[state.server_index];
+    int port = original_server->getPort();
+    
+    // Check Host header for HTTP/1.1 compliance
+    std::string host_header = req.getHeader("Host");
+    if (host_header.empty() && req.getVersion() == "HTTP/1.1") {
+        // HTTP/1.1 requires Host header
+        std::cout << "Missing Host header in HTTP/1.1 request - sending 400" << std::endl;
+        Response res;
+        res.setStatus(400, "Bad Request");
+        res.setHeader("Content-Type", "text/html");
+        res.setHeader("Connection", "close");
+        res.setBody("<html><body><h1>400 Bad Request</h1><p>Missing Host header</p></body></html>");
+        
+        std::string response_str = res.toString();
+        send(client_fd, response_str.c_str(), response_str.length(), 0);
+        closeClient(client_fd);
+        return;
+    }
+    
+    // Find the correct server based on Host header (virtual hosting)
+    int server_index = state.server_index;  // Default to original
+    if (!host_header.empty()) {
+        int matched = findServerByHost(host_header, port);
+        if (matched != -1) {
+            server_index = matched;
+        }
+    }
+    
+    Server* server = servers[server_index];
+    std::cout << "Handling request on server " << (server_index + 1) 
+              << " (port " << server->getPort() << ", server_name: " 
+              << server->getConfig().server_name << ")" << std::endl;
     
     // Let the server handle the complete request (use pre-parsed request)
     server->handleClient(client_fd, req);
@@ -236,6 +268,50 @@ void ServerManager::stop() {
     servers.clear();
     
     std::cout << "All servers stopped." << std::endl;
+}
+
+// Extract hostname from Host header (removes port if present)
+// e.g., "localhost:8080" -> "localhost"
+std::string ServerManager::extractHostname(const std::string& host) const {
+    size_t colon_pos = host.find(':');
+    if (colon_pos != std::string::npos) {
+        return host.substr(0, colon_pos);
+    }
+    return host;
+}
+
+// Find the best matching server based on Host header and port
+// Returns server index, or -1 if no match (should use default)
+int ServerManager::findServerByHost(const std::string& host, int port) const {
+    std::string hostname = extractHostname(host);
+    int first_match_on_port = -1;
+    
+    for (size_t i = 0; i < servers.size(); i++) {
+        const ServerConfig& config = servers[i]->getConfig();
+        
+        // Check if this server listens on the same port
+        if (config.port == port) {
+            // Remember first server on this port as fallback
+            if (first_match_on_port == -1) {
+                first_match_on_port = i;
+            }
+            
+            // Check if server_name matches
+            if (config.server_name == hostname) {
+                std::cout << "Host header '" << hostname << "' matched server_name of server " 
+                          << (i + 1) << std::endl;
+                return i;
+            }
+        }
+    }
+    
+    // No exact match, use first server on this port as default
+    if (first_match_on_port != -1) {
+        std::cout << "No server_name match for '" << hostname 
+                  << "', using default server " << (first_match_on_port + 1) << std::endl;
+    }
+    
+    return first_match_on_port;
 }
 
 

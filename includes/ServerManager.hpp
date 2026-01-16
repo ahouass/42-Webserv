@@ -41,6 +41,8 @@ private:
     void handleClientRequest(int client_fd);
     void closeClient(int client_fd);
     int findServerByFd(int fd) const;
+    int findServerByHost(const std::string& host, int port) const;
+    std::string extractHostname(const std::string& host) const;
 };
 
 #endif

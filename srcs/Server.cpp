@@ -236,23 +236,13 @@ bool Server::isMethodAllowed(const std::string& method, const LocationConfig* lo
 }
 
 std::string Server::buildFilePath(const std::string& uri, const LocationConfig* location) {
+    (void)location; // Location doesn't override root in current config
+    
     std::string base_path = config.root;
     std::string path = uri;
     
-    // If location has its own root, use it
-    // Note: In your config, locations don't override root, but we can add this feature
-    
-    // Remove location prefix from path if needed
-    if (location && location->path != "/") {
-        if (path.find(location->path) == 0) {
-            path = path.substr(location->path.length());
-            if (path.empty()) {
-                path = "/";
-            }
-        }
-    }
-    
-    // Build full path
+    // Build full path - keep the URI path as-is
+    // The location path is part of the filesystem structure
     std::string full_path = base_path + path;
     
     return full_path;
