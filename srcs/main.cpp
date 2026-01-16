@@ -32,18 +32,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    std::cout << "=== Webserv Starting ===" << std::endl;
-    std::cout << "Loading config: " << config_file << std::endl << std::endl;
-    
     // Parse config file
     Config config;
     if (!config.parse(config_file)) {
         std::cerr << "Failed to parse config file: " << config_file << std::endl;
         return 1;
     }
-    
-    // Print parsed config
-    config.print();
     
     // Get servers from config
     const std::vector<ServerConfig>& servers = config.getServers();

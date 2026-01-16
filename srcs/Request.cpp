@@ -239,13 +239,6 @@ void Request::parse(const std::string& raw_request) {
     } else if (headers_complete && body.length() >= content_length) {
         body_complete = true;
     }
-    
-    std::cout << "Method: " << method << std::endl;
-    std::cout << "Path: " << path << std::endl;
-    std::cout << "Version: " << version << std::endl;
-    if (content_length > 0) {
-        std::cout << "Content-Length: " << content_length << std::endl;
-    }
 }
 
 std::string Request::getHeader(const std::string& key) const {
@@ -449,9 +442,6 @@ bool Request::parseMultipart() {
         return false;
     }
     
-    std::cout << "Parsing multipart with boundary: [" << boundary << "]" << std::endl;
-    std::cout << "Body size: " << body.length() << " bytes" << std::endl;
-    
     std::string delimiter = "--" + boundary;
     std::string end_delimiter = "--" + boundary + "--";
     
@@ -469,7 +459,6 @@ bool Request::parseMultipart() {
         
         // Check for end delimiter (-- after boundary)
         if (pos + 2 <= body.length() && body[pos] == '-' && body[pos+1] == '-') {
-            std::cout << "Found end delimiter, stopping" << std::endl;
             break;  // End of multipart
         }
         
@@ -568,7 +557,6 @@ bool Request::parseMultipart() {
         }
         
         if (encoding == "base64") {
-            std::cout << "Decoding base64 content" << std::endl;
             // Remove whitespace from base64 data
             std::string clean_b64;
             for (size_t i = 0; i < part.data.length(); i++) {
@@ -579,14 +567,9 @@ bool Request::parseMultipart() {
             }
             part.data = base64Decode(clean_b64);
         } else if (encoding == "quoted-printable") {
-            std::cout << "Decoding quoted-printable content" << std::endl;
             part.data = quotedPrintableDecode(part.data);
         }
         // For "binary", "7bit", "8bit", or empty - data is used as-is
-        
-        std::cout << "Found part: name=\"" << part.name << "\" filename=\"" << part.filename 
-                  << "\" type=\"" << part.content_type << "\" size=" << part.data.length() 
-                  << " is_file=" << part.is_file << std::endl;
         
         multipart_parts.push_back(part);
         
@@ -594,7 +577,6 @@ bool Request::parseMultipart() {
         pos = next_boundary;
     }
     
-    std::cout << "Parsed " << multipart_parts.size() << " multipart parts" << std::endl;
     return !multipart_parts.empty();
 }
 

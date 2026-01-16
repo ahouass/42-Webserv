@@ -14,7 +14,7 @@ ServerManager::~ServerManager() {
 }
 
 bool ServerManager::initServers(const std::vector<ServerConfig>& configs) {
-    std::cout << "\n=== Initializing Servers ===" << std::endl;
+    std::cout << "=== Initializing Servers ===" << std::endl;
     
     // Create and start each server
     for (size_t i = 0; i < configs.size(); i++) {
@@ -33,9 +33,6 @@ bool ServerManager::initServers(const std::vector<ServerConfig>& configs) {
         addPollFd(server_fd, POLLIN);
         fd_to_server[server_fd] = i;
         server_fds.insert(server_fd);  // Mark this as a server socket
-        
-        std::cout << "Server " << (i + 1) << " listening on port " 
-                  << server->getPort() << std::endl;
     }
     
     std::cout << "\nAll servers started successfully!" << std::endl;
@@ -91,8 +88,7 @@ void ServerManager::handleNewConnection(int server_index) {
         return;
     }
     
-    std::cout << "--- New connection on server " << (server_index + 1) 
-              << " (port " << server->getPort() << ") ---" << std::endl;
+    std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() << "] New connection" << std::endl;
     
     // Add client to poll
     addPollFd(client_fd, POLLIN);
@@ -121,7 +117,6 @@ void ServerManager::handleClientRequest(int client_fd) {
     
     if (bytes_read == 0) {
         // Client closed connection
-        std::cout << "Client closed connection" << std::endl;
         closeClient(client_fd);
         return;
     }
@@ -148,16 +143,11 @@ void ServerManager::handleClientRequest(int client_fd) {
             // Headers not complete yet, wait for more data
             return;
         }
-        std::cout << "Headers complete - Method: " << req.getMethod() 
-                  << " Path: " << req.getPath() << std::endl;
         
         // Check body size limit early
         Server* server = servers[state.server_index];
         size_t max_size = server->getConfig().client_max_body_size;
         if (req.getContentLength() > max_size) {
-            std::cout << "Request body too large (early check): " << req.getContentLength() 
-                      << " > " << max_size << std::endl;
-            
             // Send 413 and close
             Response res;
             res.setStatus(413, "Payload Too Large");
@@ -175,13 +165,10 @@ void ServerManager::handleClientRequest(int client_fd) {
     // Check if request is complete (headers + full body)
     if (!req.isComplete()) {
         // Still waiting for body data
-        std::cout << "Waiting for more body data... (have " << req.getBody().length() 
-                  << "/" << req.getContentLength() << " bytes)" << std::endl;
         return;
     }
     
     // Request is complete, process it
-    std::cout << "Request complete, processing..." << std::endl;
     
     // Get the original server (based on which port received the connection)
     Server* original_server = servers[state.server_index];
@@ -191,7 +178,6 @@ void ServerManager::handleClientRequest(int client_fd) {
     std::string host_header = req.getHeader("Host");
     if (host_header.empty() && req.getVersion() == "HTTP/1.1") {
         // HTTP/1.1 requires Host header
-        std::cout << "Missing Host header in HTTP/1.1 request - sending 400" << std::endl;
         Response res;
         res.setStatus(400, "Bad Request");
         res.setHeader("Content-Type", "text/html");
@@ -214,16 +200,14 @@ void ServerManager::handleClientRequest(int client_fd) {
     }
     
     Server* server = servers[server_index];
-    std::cout << "Handling request on server " << (server_index + 1) 
-              << " (port " << server->getPort() << ", server_name: " 
-              << server->getConfig().server_name << ")" << std::endl;
+    std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() 
+              << "] " << req.getMethod() << " " << req.getPath() << std::endl;
     
     // Let the server handle the complete request (use pre-parsed request)
     server->handleClient(client_fd, req);
     
     // Close connection after response
     closeClient(client_fd);
-    std::cout << "--- Client disconnected ---\n" << std::endl;
 }
 
 void ServerManager::closeClient(int client_fd) {
@@ -266,8 +250,6 @@ void ServerManager::stop() {
         delete servers[i];
     }
     servers.clear();
-    
-    std::cout << "All servers stopped." << std::endl;
 }
 
 // Extract hostname from Host header (removes port if present)
@@ -298,19 +280,12 @@ int ServerManager::findServerByHost(const std::string& host, int port) const {
             
             // Check if server_name matches
             if (config.server_name == hostname) {
-                std::cout << "Host header '" << hostname << "' matched server_name of server " 
-                          << (i + 1) << std::endl;
                 return i;
             }
         }
     }
     
     // No exact match, use first server on this port as default
-    if (first_match_on_port != -1) {
-        std::cout << "No server_name match for '" << hostname 
-                  << "', using default server " << (first_match_on_port + 1) << std::endl;
-    }
-    
     return first_match_on_port;
 }
 

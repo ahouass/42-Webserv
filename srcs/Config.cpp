@@ -102,7 +102,6 @@ bool Config::parse(const std::string& filename) {
                 servers.push_back(ServerConfig());
                 current_server = &servers.back();
                 in_server = true;
-                std::cout << "Parsing server block..." << std::endl;
             }
             else if (line.find("location") == 0) {
                 std::vector<std::string> tokens = split(line, ' ');
@@ -111,7 +110,6 @@ bool Config::parse(const std::string& filename) {
                     current_location = &current_server->locations.back();
                     current_location->path = tokens[1];
                     in_location = true;
-                    std::cout << "  Parsing location: " << current_location->path << std::endl;
                 }
             }
             continue;
@@ -140,23 +138,18 @@ bool Config::parse(const std::string& filename) {
         if (in_server && !in_location && current_server) {
             if (directive == "listen" && tokens.size() >= 2) {
                 current_server->port = std::atoi(tokens[1].c_str());
-                std::cout << "    Port: " << current_server->port << std::endl;
             }
             else if (directive == "server_name" && tokens.size() >= 2) {
                 current_server->server_name = tokens[1];
-                std::cout << "    Server name: " << current_server->server_name << std::endl;
             }
             else if (directive == "root" && tokens.size() >= 2) {
                 current_server->root = tokens[1];
-                std::cout << "    Root: " << current_server->root << std::endl;
             }
             else if (directive == "index" && tokens.size() >= 2) {
                 current_server->index = tokens[1];
-                std::cout << "    Index: " << current_server->index << std::endl;
             }
             else if (directive == "client_max_body_size" && tokens.size() >= 2) {
                 current_server->client_max_body_size = parseSize(tokens[1]);
-                std::cout << "    Max body size: " << current_server->client_max_body_size << " bytes" << std::endl;
             }
             else if (directive == "error_page" && tokens.size() >= 3) {
                 // error_page 404 /404.html
@@ -166,7 +159,6 @@ bool Config::parse(const std::string& filename) {
                     if (isNumber(tokens[i])) {
                         int code = std::atoi(tokens[i].c_str());
                         current_server->error_pages[code] = path;
-                        std::cout << "    Error page " << code << ": " << path << std::endl;
                     }
                 }
             }
@@ -178,31 +170,21 @@ bool Config::parse(const std::string& filename) {
                 for (size_t i = 1; i < tokens.size(); i++) {
                     current_location->methods.push_back(tokens[i]);
                 }
-                std::cout << "      Methods: ";
-                for (size_t i = 0; i < current_location->methods.size(); i++) {
-                    std::cout << current_location->methods[i] << " ";
-                }
-                std::cout << std::endl;
             }
             else if (directive == "autoindex" && tokens.size() >= 2) {
                 current_location->autoindex = (tokens[1] == "on");
-                std::cout << "      Autoindex: " << (current_location->autoindex ? "on" : "off") << std::endl;
             }
             else if (directive == "upload_store" && tokens.size() >= 2) {
                 current_location->upload_store = tokens[1];
-                std::cout << "      Upload store: " << current_location->upload_store << std::endl;
             }
             else if (directive == "cgi_extension" && tokens.size() >= 2) {
                 current_location->cgi_extension = tokens[1];
-                std::cout << "      CGI extension: " << current_location->cgi_extension << std::endl;
             }
             else if (directive == "cgi_path" && tokens.size() >= 2) {
                 current_location->cgi_path = tokens[1];
-                std::cout << "      CGI path: " << current_location->cgi_path << std::endl;
             }
             else if (directive == "client_max_body_size" && tokens.size() >= 2) {
                 current_location->client_max_body_size = parseSize(tokens[1]);
-                std::cout << "      Max body size: " << current_location->client_max_body_size << " bytes" << std::endl;
             }
         }
     }
@@ -214,7 +196,6 @@ bool Config::parse(const std::string& filename) {
         return false;
     }
     
-    std::cout << "\nConfig parsed successfully! Found " << servers.size() << " server(s)." << std::endl;
     return true;
 }
 
