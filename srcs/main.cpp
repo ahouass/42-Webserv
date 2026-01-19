@@ -20,17 +20,13 @@ int main(int argc, char** argv) {
     // Setup signal handler for Ctrl+C
     signal(SIGINT, signalHandler);
     
-    // Default config file
-    std::string config_file = "config/default.conf";
-    
-    // Check for command-line argument
-    if (argc == 2) {
-        config_file = argv[1];
-    }
-    else if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " [config_file]" << std::endl;
+    // Check for command-line argument (config file is required)
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <config_file>" << std::endl;
         return 1;
     }
+    
+    std::string config_file = argv[1];
     
     // Parse config file
     Config config;

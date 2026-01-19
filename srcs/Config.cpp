@@ -128,6 +128,7 @@ bool Config::parse(const std::string& filename) {
         }
         
         // Parse directives
+        while(1) {}
         std::vector<std::string> tokens = split(line, ' ');
         if (tokens.empty())
             continue;
