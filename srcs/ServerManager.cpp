@@ -25,7 +25,7 @@ bool ServerManager::initServers(const std::vector<ServerConfig>& configs) {
             delete server;
             return false;
         }
-        
+
         servers.push_back(server);
         
         // Add server socket to poll
@@ -81,8 +81,7 @@ void ServerManager::handleNewConnection(int server_index) {
     }
     
     // Set client socket to non-blocking mode
-    int flags = fcntl(client_fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0) {
         std::cerr << "Failed to set non-blocking mode on client socket" << std::endl;
         close(client_fd);
         return;
