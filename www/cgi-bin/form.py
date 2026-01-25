@@ -28,7 +28,7 @@ print("""<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-    <h1>📝 Form Data Received</h1>
+    <h1>Form Data Received</h1>
 """)
 
 method = os.environ.get('REQUEST_METHOD', 'GET')
