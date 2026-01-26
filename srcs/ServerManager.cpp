@@ -51,11 +51,22 @@ void ServerManager::run() {
             break;
         }
         
-        // Check each file descriptor
+        // Check each file descriptor for BOTH read and write events
         for (size_t i = 0; i < poll_fds.size(); i++) {
-            if (poll_fds[i].revents & POLLIN) {
-                int fd = poll_fds[i].fd;
-                
+            int fd = poll_fds[i].fd;
+            short revents = poll_fds[i].revents;
+            
+            // Handle errors and hangups
+            if (revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                if (server_fds.find(fd) == server_fds.end()) {
+                    // Client socket error
+                    closeClient(fd);
+                    continue;
+                }
+            }
+            
+            // Check for read events (POLLIN)
+            if (revents & POLLIN) {
                 // Check if this is a server socket (new connection)
                 if (server_fds.find(fd) != server_fds.end()) {
                     // This is a server socket - new connection
@@ -63,6 +74,14 @@ void ServerManager::run() {
                 } else {
                     // This is a client socket - handle request
                     handleClientRequest(fd);
+                }
+            }
+            
+            // Check for write events (POLLOUT)
+            if (revents & POLLOUT) {
+                // Only client sockets should have POLLOUT
+                if (server_fds.find(fd) == server_fds.end()) {
+                    handleClientWrite(fd);
                 }
             }
         }
@@ -90,8 +109,8 @@ void ServerManager::handleNewConnection(int server_index) {
     
     std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() << "] New connection" << std::endl;
     
-    // Add client to poll
-    addPollFd(client_fd, POLLIN);
+    // Add client to poll - register for BOTH read and write events
+    addPollFd(client_fd, POLLIN | POLLOUT);
     fd_to_server[client_fd] = server_index;
     
     // Initialize client state for incremental parsing
@@ -101,35 +120,38 @@ void ServerManager::handleNewConnection(int server_index) {
 }
 
 void ServerManager::handleClientRequest(int client_fd) {
-    // Read available data from socket
-    char buffer[8192];
-    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-    
-    if (bytes_read < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // No data available right now, will try again later
-            return;
-        }
-        std::cerr << "Read error on client fd " << client_fd << std::endl;
-        closeClient(client_fd);
-        return;
-    }
-    
-    if (bytes_read == 0) {
-        // Client closed connection
-        closeClient(client_fd);
-        return;
-    }
-    
-    buffer[bytes_read] = '\0';
-    
-    // Get client state
+    // Get client state first
     std::map<int, ClientState>::iterator it = client_states.find(client_fd);
     if (it == client_states.end()) {
         std::cerr << "No state found for client fd " << client_fd << std::endl;
         closeClient(client_fd);
         return;
     }
+    
+    // If response is already ready, don't read more (wait for write to complete)
+    if (it->second.response_ready) {
+        return;
+    }
+    
+    // Read available data from socket
+    char buffer[8192];
+    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
+    
+    // Check return value properly (both -1 and 0)
+    if (bytes_read <= 0) {
+        if (bytes_read == 0) {
+            // Client closed connection
+            closeClient(client_fd);
+        } else {
+            // bytes_read < 0: error occurred
+            // For non-blocking sockets, would-block is not a real error
+            // but we don't check errno - just close on any error
+            closeClient(client_fd);
+        }
+        return;
+    }
+    
+    buffer[bytes_read] = '\0';
     
     ClientState& state = it->second;
     Request& req = state.request;
@@ -148,16 +170,14 @@ void ServerManager::handleClientRequest(int client_fd) {
         Server* server = servers[state.server_index];
         size_t max_size = server->getConfig().client_max_body_size;
         if (req.getContentLength() > max_size) {
-            // Send 413 and close
+            // Queue 413 response
             Response res;
             res.setStatus(413, "Payload Too Large");
             res.setHeader("Content-Type", "text/html");
             res.setHeader("Connection", "close");
             res.setBody("<html><body><h1>413 Payload Too Large</h1></body></html>");
             
-            std::string response_str = res.toString();
-            send(client_fd, response_str.c_str(), response_str.length(), 0);
-            closeClient(client_fd);
+            queueResponse(client_fd, res.toString());
             return;
         }
     }
@@ -184,9 +204,7 @@ void ServerManager::handleClientRequest(int client_fd) {
         res.setHeader("Connection", "close");
         res.setBody("<html><body><h1>400 Bad Request</h1><p>Missing Host header</p></body></html>");
         
-        std::string response_str = res.toString();
-        send(client_fd, response_str.c_str(), response_str.length(), 0);
-        closeClient(client_fd);
+        queueResponse(client_fd, res.toString());
         return;
     }
     
@@ -203,11 +221,74 @@ void ServerManager::handleClientRequest(int client_fd) {
     std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() 
               << "] " << req.getMethod() << " " << req.getPath() << std::endl;
     
-    // Let the server handle the complete request (use pre-parsed request)
-    server->handleClient(client_fd, req);
+    // Get the response from server (don't send directly)
+    Response response = server->handleRequest(req);
     
-    // Close connection after response
-    closeClient(client_fd);
+    // Queue the response to be sent when POLLOUT is ready
+    queueResponse(client_fd, response.toString());
+}
+
+void ServerManager::queueResponse(int client_fd, const std::string& response) {
+    std::map<int, ClientState>::iterator it = client_states.find(client_fd);
+    if (it == client_states.end()) {
+        return;
+    }
+    
+    it->second.response_buffer = response;
+    it->second.bytes_sent = 0;
+    it->second.response_ready = true;
+}
+
+void ServerManager::handleClientWrite(int client_fd) {
+    std::map<int, ClientState>::iterator it = client_states.find(client_fd);
+    if (it == client_states.end()) {
+        closeClient(client_fd);
+        return;
+    }
+    
+    ClientState& state = it->second;
+    
+    // If no response is ready, nothing to write
+    if (!state.response_ready || state.response_buffer.empty()) {
+        return;
+    }
+    
+    // Calculate remaining data to send
+    size_t remaining = state.response_buffer.length() - state.bytes_sent;
+    if (remaining == 0) {
+        // All data sent, close connection
+        closeClient(client_fd);
+        return;
+    }
+    
+    // Write data to socket (only ONE write per poll cycle)
+    const char* data = state.response_buffer.c_str() + state.bytes_sent;
+    ssize_t bytes_written = write(client_fd, data, remaining);
+    
+    // Check return value properly (both -1 and 0)
+    if (bytes_written <= 0) {
+        // Error or connection closed, remove client
+        closeClient(client_fd);
+        return;
+    }
+    
+    // Update bytes sent
+    state.bytes_sent += bytes_written;
+    
+    // Check if we've sent everything
+    if (state.bytes_sent >= state.response_buffer.length()) {
+        // All data sent, close connection
+        closeClient(client_fd);
+    }
+}
+
+void ServerManager::updatePollEvents(int fd, short events) {
+    for (size_t i = 0; i < poll_fds.size(); i++) {
+        if (poll_fds[i].fd == fd) {
+            poll_fds[i].events = events;
+            break;
+        }
+    }
 }
 
 void ServerManager::closeClient(int client_fd) {

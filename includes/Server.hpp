@@ -33,9 +33,10 @@ public:
     std::string getServerName() const { return config.server_name; }
     const ServerConfig& getConfig() const { return config; }
     
-private:
+    // Handle request and return response (for ServerManager)
     Response handleRequest(const Request& req);
     
+private:
     // Location matching
     const LocationConfig* findLocation(const std::string& path) const;
     bool isMethodAllowed(const std::string& method, const LocationConfig* location) const;

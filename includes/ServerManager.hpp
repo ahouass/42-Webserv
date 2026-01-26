@@ -12,10 +12,12 @@
 // Tracks the state of a client connection
 struct ClientState {
     Request request;
+    std::string response_buffer;  // Buffer for outgoing response
+    size_t bytes_sent;            // How many bytes have been sent
     int server_index;
     bool response_ready;
     
-    ClientState() : server_index(-1), response_ready(false) {}
+    ClientState() : bytes_sent(0), server_index(-1), response_ready(false) {}
 };
 
 class ServerManager {
@@ -37,8 +39,11 @@ public:
 private:
     void addPollFd(int fd, short events);
     void removePollFd(int fd);
+    void updatePollEvents(int fd, short events);
     void handleNewConnection(int server_index);
     void handleClientRequest(int client_fd);
+    void handleClientWrite(int client_fd);
+    void queueResponse(int client_fd, const std::string& response);
     void closeClient(int client_fd);
     int findServerByFd(int fd) const;
     int findServerByHost(const std::string& host, int port) const;

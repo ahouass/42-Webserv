@@ -300,7 +300,8 @@ CGIStatus CGI::execute() {
     if (!request_body.empty()) {
         std::cout << "Sending " << request_body.length() << " bytes to CGI stdin" << std::endl;
         ssize_t written = write(pipe_in[1], request_body.c_str(), request_body.length());
-        if (written < 0) {
+        // Check return value properly (both -1 and 0)
+        if (written <= 0) {
             std::cerr << "CGI Error: Failed to write to CGI stdin" << std::endl;
         }
     }
@@ -337,23 +338,20 @@ CGIStatus CGI::execute() {
             // EOF - CGI finished
             break;
         } else {
-            // EAGAIN/EWOULDBLOCK - no data available yet
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // Check if child is still running
-                int child_status;
-                pid_t result = waitpid(pid, &child_status, WNOHANG);
-                if (result == pid) {
-                    // Child exited, read any remaining data
-                    while ((bytes_read = read(pipe_out[0], buffer, sizeof(buffer) - 1)) > 0) {
-                        buffer[bytes_read] = '\0';
-                        cgi_output += buffer;
-                    }
-                    break;
+            // bytes_read < 0: For non-blocking pipe, this means no data yet
+            // Check if child is still running
+            int child_status;
+            pid_t result = waitpid(pid, &child_status, WNOHANG);
+            if (result == pid) {
+                // Child exited, read any remaining data
+                while ((bytes_read = read(pipe_out[0], buffer, sizeof(buffer) - 1)) > 0) {
+                    buffer[bytes_read] = '\0';
+                    cgi_output += buffer;
                 }
-                usleep(10000);  // Sleep 10ms and retry
-                continue;
+                break;
             }
-            break;
+            usleep(10000);  // Sleep 10ms and retry
+            continue;
         }
     }
     

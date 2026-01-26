@@ -88,21 +88,19 @@ void Server::run() {
 }
 
 void Server::handleClient(int client_fd) {
+    // NOTE: This method is for standalone mode only (not used by ServerManager)
     // Read request
     char buffer[8192] = {0};
     int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
     
-    if (bytes_read < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // No data available yet on non-blocking socket
-            return;
+    // Check return value properly (both -1 and 0)
+    if (bytes_read <= 0) {
+        if (bytes_read == 0) {
+            // Client closed connection
+        } else {
+            // bytes_read < 0: error occurred
+            std::cerr << "Error: Failed to read request" << std::endl;
         }
-        std::cerr << "Error: Failed to read request" << std::endl;
-        return;
-    }
-    
-    if (bytes_read == 0) {
-        // Client closed connection
         return;
     }
     
@@ -115,12 +113,16 @@ void Server::handleClient(int client_fd) {
 }
 
 void Server::handleClient(int client_fd, const Request& req) {
+    // NOTE: This method is for standalone mode only (not used by ServerManager)
     // Handle request and create response
     Response res = handleRequest(req);
     
-    // Send response
+    // Send response - check return value
     std::string response_str = res.toString();
-    send(client_fd, response_str.c_str(), response_str.length(), 0);
+    ssize_t bytes_sent = send(client_fd, response_str.c_str(), response_str.length(), 0);
+    if (bytes_sent <= 0) {
+        std::cerr << "Error: Failed to send response" << std::endl;
+    }
 }
 
 Response Server::handleRequest(const Request& req) {
