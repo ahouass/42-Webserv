@@ -9,7 +9,7 @@ ServerManager* g_server_manager = NULL;
 
 void signalHandler(int signum) {
     (void)signum;
-    std::cout << "\n\nReceived interrupt signal. Shutting down..." << std::endl;
+    std::cout << "\nShutting down..." << std::endl;
     if (g_server_manager) {
         g_server_manager->stop();
     }
@@ -34,6 +34,9 @@ int main(int argc, char** argv) {
         std::cerr << "Failed to parse config file: " << config_file << std::endl;
         return 1;
     }
+    
+    // Print loaded configuration
+    config.print();
     
     // Get servers from config
     const std::vector<ServerConfig>& servers = config.getServers();

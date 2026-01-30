@@ -14,41 +14,66 @@ ServerManager::~ServerManager() {
 }
 
 bool ServerManager::initServers(const std::vector<ServerConfig>& configs) {
-    std::cout << "=== Initializing Servers ===" << std::endl;
+    // Track which ports have been bound (for virtual hosting support)
+    std::map<int, int> port_to_server_index;  // port -> first server index using it
     
     // Create and start each server
     for (size_t i = 0; i < configs.size(); i++) {
+        int port = configs[i].port;
+        
+        // Check if this port is already bound by another server
+        if (port_to_server_index.find(port) != port_to_server_index.end()) {
+            // Port already in use - this is virtual hosting
+            Server* server = new Server(configs[i]);
+            servers.push_back(server);
+            
+            // Map to the same fd as the first server on this port
+            int first_server_idx = port_to_server_index[port];
+            int shared_fd = servers[first_server_idx]->getServerFd();
+            fd_to_server[shared_fd] = first_server_idx;
+            continue;
+        }
+        
+        // New port - create and bind
         Server* server = new Server(configs[i]);
         
         if (!server->start()) {
-            std::cerr << "Failed to start server on port " << configs[i].port << std::endl;
+            std::cerr << "Failed to start server on port " << port << std::endl;
             delete server;
             return false;
         }
         
         servers.push_back(server);
+        port_to_server_index[port] = i;
         
         // Add server socket to poll
         int server_fd = server->getServerFd();
         addPollFd(server_fd, POLLIN);
         fd_to_server[server_fd] = i;
-        server_fds.insert(server_fd);  // Mark this as a server socket
+        server_fds.insert(server_fd);
     }
     
-    std::cout << "\nAll servers started successfully!" << std::endl;
-    std::cout << "Waiting for connections...\n" << std::endl;
+    std::cout << "Webserv ready - listening on " << servers.size() << " server(s)" << std::endl;
     
     return true;
 }
 
 void ServerManager::run() {
+    time_t last_timeout_check = time(NULL);
+    
     while (true) {
-        // Wait for activity on any socket
-        int activity = poll(&poll_fds[0], poll_fds.size(), -1);
+        // Wait for activity on any socket (with 1 second timeout for checking idle connections)
+        int activity = poll(&poll_fds[0], poll_fds.size(), 1000);
         
         if (activity < 0) {
             std::cerr << "poll() error" << std::endl;
             break;
+        }
+        
+        // Periodically check for timed-out connections
+        if (time(NULL) - last_timeout_check >= 5) {
+            checkTimeouts();
+            last_timeout_check = time(NULL);
         }
         
         // Check each file descriptor for BOTH read and write events
@@ -99,15 +124,11 @@ void ServerManager::handleNewConnection(int server_index) {
         return;
     }
     
-    // Set client socket to non-blocking mode
-    int flags = fcntl(client_fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(client_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        std::cerr << "Failed to set non-blocking mode on client socket" << std::endl;
+    // Set client socket to non-blocking mode (only F_SETFL and O_NONBLOCK allowed on macOS)
+    if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0) {
         close(client_fd);
         return;
     }
-    
-    std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() << "] New connection" << std::endl;
     
     // Add client to poll - register for BOTH read and write events
     addPollFd(client_fd, POLLIN | POLLOUT);
@@ -154,6 +175,7 @@ void ServerManager::handleClientRequest(int client_fd) {
     buffer[bytes_read] = '\0';
     
     ClientState& state = it->second;
+    state.last_activity = time(NULL);  // Update activity timestamp
     Request& req = state.request;
     
     // Append received data to request
@@ -194,19 +216,8 @@ void ServerManager::handleClientRequest(int client_fd) {
     Server* original_server = servers[state.server_index];
     int port = original_server->getPort();
     
-    // Check Host header for HTTP/1.1 compliance
+    // Get Host header for virtual hosting (not strictly required)
     std::string host_header = req.getHeader("Host");
-    if (host_header.empty() && req.getVersion() == "HTTP/1.1") {
-        // HTTP/1.1 requires Host header
-        Response res;
-        res.setStatus(400, "Bad Request");
-        res.setHeader("Content-Type", "text/html");
-        res.setHeader("Connection", "close");
-        res.setBody("<html><body><h1>400 Bad Request</h1><p>Missing Host header</p></body></html>");
-        
-        queueResponse(client_fd, res.toString());
-        return;
-    }
     
     // Find the correct server based on Host header (virtual hosting)
     int server_index = state.server_index;  // Default to original
@@ -256,8 +267,12 @@ void ServerManager::handleClientWrite(int client_fd) {
     // Calculate remaining data to send
     size_t remaining = state.response_buffer.length() - state.bytes_sent;
     if (remaining == 0) {
-        // All data sent, close connection
-        closeClient(client_fd);
+        // All data sent, reset for next request (keep-alive)
+        state.request.reset();
+        state.response_buffer.clear();
+        state.bytes_sent = 0;
+        state.response_ready = false;
+        state.last_activity = time(NULL);
         return;
     }
     
@@ -277,8 +292,12 @@ void ServerManager::handleClientWrite(int client_fd) {
     
     // Check if we've sent everything
     if (state.bytes_sent >= state.response_buffer.length()) {
-        // All data sent, close connection
-        closeClient(client_fd);
+        // All data sent, reset for next request (keep-alive)
+        state.request.reset();
+        state.response_buffer.clear();
+        state.bytes_sent = 0;
+        state.response_ready = false;
+        state.last_activity = time(NULL);
     }
 }
 
@@ -296,6 +315,24 @@ void ServerManager::closeClient(int client_fd) {
     fd_to_server.erase(client_fd);
     client_states.erase(client_fd);
     close(client_fd);
+}
+
+void ServerManager::checkTimeouts() {
+    time_t now = time(NULL);
+    std::vector<int> to_close;
+    
+    // Find all timed-out connections
+    for (std::map<int, ClientState>::iterator it = client_states.begin();
+         it != client_states.end(); ++it) {
+        if (now - it->second.last_activity > CONNECTION_TIMEOUT) {
+            to_close.push_back(it->first);
+        }
+    }
+    
+    // Close timed-out connections
+    for (size_t i = 0; i < to_close.size(); i++) {
+        closeClient(to_close[i]);
+    }
 }
 
 void ServerManager::addPollFd(int fd, short events) {
@@ -316,8 +353,6 @@ void ServerManager::removePollFd(int fd) {
 }
 
 void ServerManager::stop() {
-    std::cout << "\nStopping all servers..." << std::endl;
-    
     // Close all client connections
     for (size_t i = 0; i < poll_fds.size(); i++) {
         close(poll_fds[i].fd);

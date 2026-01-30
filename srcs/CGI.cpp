@@ -223,11 +223,6 @@ CGIStatus CGI::execute() {
         return status;
     }
     
-    std::cout << "Executing CGI: " << script_path << std::endl;
-    std::cout << "Interpreter: " << cgi_interpreter << std::endl;
-    std::cout << "Method: " << request_method << std::endl;
-    std::cout << "Query: " << query_string << std::endl;
-    
     pid_t pid = fork();
     
     if (pid == -1) {
@@ -298,9 +293,7 @@ CGIStatus CGI::execute() {
     
     // Send request body to CGI (for POST requests)
     if (!request_body.empty()) {
-        std::cout << "Sending " << request_body.length() << " bytes to CGI stdin" << std::endl;
         ssize_t written = write(pipe_in[1], request_body.c_str(), request_body.length());
-        // Check return value properly (both -1 and 0)
         if (written <= 0) {
             std::cerr << "CGI Error: Failed to write to CGI stdin" << std::endl;
         }
@@ -314,9 +307,8 @@ CGIStatus CGI::execute() {
     // Set up timeout using alarm or select
     time_t start_time = time(NULL);
     
-    // Set non-blocking on output pipe
-    int flags = fcntl(pipe_out[0], F_GETFL, 0);
-    fcntl(pipe_out[0], F_SETFL, flags | O_NONBLOCK);
+    // Set non-blocking on output pipe (only F_SETFL and O_NONBLOCK allowed on macOS)
+    fcntl(pipe_out[0], F_SETFL, O_NONBLOCK);
     
     while (true) {
         // Check timeout
@@ -361,17 +353,16 @@ CGIStatus CGI::execute() {
     int child_status;
     waitpid(pid, &child_status, 0);
     
-    if (WIFEXITED(child_status)) {
-        int exit_code = WEXITSTATUS(child_status);
-        std::cout << "CGI exited with code: " << exit_code << std::endl;
-        if (exit_code != 0) {
-            std::cerr << "CGI script returned non-zero exit code" << std::endl;
-        }
-    } else if (WIFSIGNALED(child_status)) {
+    if (WIFSIGNALED(child_status)) {
         std::cerr << "CGI terminated by signal: " << WTERMSIG(child_status) << std::endl;
+        status = CGI_ERROR_EXEC;
+    } else if (WIFEXITED(child_status) && WEXITSTATUS(child_status) != 0) {
+        // Script exited with non-zero status (e.g., syntax error)
+        std::cerr << "CGI exited with status: " << WEXITSTATUS(child_status) << std::endl;
+        if (cgi_output.empty()) {
+            status = CGI_ERROR_EXEC;
+        }
     }
-    
-    std::cout << "CGI output size: " << cgi_output.length() << " bytes" << std::endl;
     
     return status;
 }

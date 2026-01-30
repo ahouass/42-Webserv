@@ -18,17 +18,12 @@ public:
     ~Server();
     
     bool start();
-    void run();  // Keep for single-server mode
     void stop();
     
-    // NEW: Expose server_fd for poll()
+    // Expose server_fd for poll()
     int getServerFd() const { return server_fd; }
     
-    // NEW: Make handleClient public so ServerManager can call it
-    void handleClient(int client_fd);
-    void handleClient(int client_fd, const Request& req);  // For pre-parsed requests
-    
-    // NEW: Get config info
+    // Get config info
     int getPort() const { return config.port; }
     std::string getServerName() const { return config.server_name; }
     const ServerConfig& getConfig() const { return config; }
@@ -51,8 +46,8 @@ private:
     Response serveFile(const std::string& path, const LocationConfig* location);
     Response serveDirectory(const std::string& path, const LocationConfig* location);
     Response serveErrorPage(int code, const std::string& message);
+    Response serveRedirect(int code, const std::string& url);
     Response serve200(const std::string& message);
-    Response serve204();
     Response serve403();
     Response serve404();
     Response serve405();
@@ -75,7 +70,6 @@ private:
     // Helper
     std::string buildFilePath(const std::string& uri, const LocationConfig* location);
     std::string getUploadPath(const LocationConfig* location) const;
-    std::string extractFilename(const std::string& content_disposition) const;
     std::string generateFilename() const;
 };
 

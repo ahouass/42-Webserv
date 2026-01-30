@@ -1,31 +1,41 @@
 #!/usr/bin/env python3
 """
-CGI script demonstrating redirect
+CGI script demonstrating HTTP redirects
+Usage: /cgi-bin/redirect.py?url=/target or ?url=https://example.com
 """
 import os
+import urllib.parse
 
-# Get redirect target from query string
 query_string = os.environ.get('QUERY_STRING', '')
-params = {}
-if query_string:
-    for pair in query_string.split('&'):
-        if '=' in pair:
-            key, value = pair.split('=', 1)
-            params[key] = value
+params = dict(urllib.parse.parse_qsl(query_string))
+target = params.get('url', '/')
+code = params.get('code', '302')
 
-target = params.get('url', '/cgi-bin/test.py')
+status_map = {
+    '301': '301 Moved Permanently',
+    '302': '302 Found',
+    '303': '303 See Other',
+    '307': '307 Temporary Redirect',
+    '308': '308 Permanent Redirect'
+}
+status = status_map.get(code, '302 Found')
 
-# Output redirect headers
-print(f"Status: 302 Found")
+print(f"Status: {status}")
 print(f"Location: {target}")
 print("Content-Type: text/html")
 print("")
-
 print(f"""<!DOCTYPE html>
 <html>
-<head><title>Redirecting...</title></head>
+<head>
+    <meta charset="UTF-8">
+    <title>Redirecting...</title>
+    <meta http-equiv="refresh" content="0;url={target}">
+    <style>
+        body {{ font-family: sans-serif; padding: 50px; text-align: center; background: #f0f0f0; }}
+        a {{ color: #4f46e5; }}
+    </style>
+</head>
 <body>
-<p>Redirecting to <a href="{target}">{target}</a>...</p>
+    <p>Redirecting to <a href="{target}">{target}</a>...</p>
 </body>
-</html>
-""")
+</html>""")

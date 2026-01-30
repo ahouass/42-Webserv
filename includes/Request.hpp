@@ -30,6 +30,7 @@ private:
     bool headers_complete;   // Have we parsed all headers?
     bool body_complete;      // Is the full body received?
     size_t content_length;   // Expected body size
+    bool is_chunked;         // Is Transfer-Encoding: chunked?
     
     // Multipart data
     std::vector<MultipartPart> multipart_parts;
@@ -61,21 +62,16 @@ public:
     bool isMultipart() const;
     bool parseMultipart();
     const std::vector<MultipartPart>& getParts() const { return multipart_parts; }
-    bool hasFileParts() const;
-    size_t getFileCount() const;
     size_t getTotalUploadSize() const;
-    
-    // URL-encoded form parsing
-    std::map<std::string, std::string> parseFormData() const;
-    
+        
     // Query string parsing
     std::map<std::string, std::string> parseQueryString() const;
-    std::string getQueryParam(const std::string& key) const;
     
     // Utility functions
     static std::string urlDecode(const std::string& str);
     static std::string base64Decode(const std::string& str);
     static std::string quotedPrintableDecode(const std::string& str);
+    bool isChunked() const { return is_chunked; }
     
 private:
     void parseContentDisposition(const std::string& header, std::string& name, std::string& filename);
@@ -84,6 +80,7 @@ private:
     std::string extractQuotedValue(const std::string& str, const std::string& key) const;
     std::string extractUnquotedValue(const std::string& str, const std::string& key) const;
     bool findBoundaryPosition(const std::string& data, const std::string& boundary, size_t start, size_t& pos) const;
+    std::string unchunkBody(const std::string& chunked_body) const;
 };
 
 #endif

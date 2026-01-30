@@ -13,6 +13,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <cstdio>
+#include <fcntl.h>
 
 Server::Server() : server_fd(-1) {
     // Default config
@@ -42,6 +43,14 @@ bool Server::start() {
         return false;
     }
     
+    // Set server socket to non-blocking mode (only F_SETFL and O_NONBLOCK allowed on macOS)
+    if (fcntl(server_fd, F_SETFL, O_NONBLOCK) < 0) {
+        std::cerr << "Error: Failed to set non-blocking mode on server socket" << std::endl;
+        close(server_fd);
+        server_fd = -1;
+        return false;
+    }
+    
     // Bind to port
     struct sockaddr_in address;
     address.sin_family = AF_INET;
@@ -54,80 +63,31 @@ bool Server::start() {
     }
     
     // Listen
-    if (listen(server_fd, 10) < 0) {
+    if (listen(server_fd, SOMAXCONN) < 0) {
         std::cerr << "Error: Listen failed" << std::endl;
         return false;
     }
     
-    std::cout << "\n=== Server Started ===" << std::endl;
-    std::cout << "Port: " << config.port << std::endl;
-    std::cout << "Root: " << config.root << std::endl;
-    std::cout << "Server name: " << config.server_name << std::endl;
-    std::cout << "Waiting for connections...\n" << std::endl;
+    std::cout << "[Server] " << config.server_name << ":" << config.port << " started" << std::endl;
     
     return true;
 }
 
-void Server::run() {
-    while (true) {
-        // Accept connection
-        int client_fd = accept(server_fd, NULL, NULL);
-        if (client_fd < 0) {
-            std::cerr << "Error: Accept failed" << std::endl;
-            continue;
-        }
-        
-        std::cout << "--- New client connected ---" << std::endl;
-        
-        // Handle the client
-        handleClient(client_fd);
-        
-        // Close connection
-        close(client_fd);
-    }
-}
-
-void Server::handleClient(int client_fd) {
-    // NOTE: This method is for standalone mode only (not used by ServerManager)
-    // Read request
-    char buffer[8192] = {0};
-    int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-    
-    // Check return value properly (both -1 and 0)
-    if (bytes_read <= 0) {
-        if (bytes_read == 0) {
-            // Client closed connection
-        } else {
-            // bytes_read < 0: error occurred
-            std::cerr << "Error: Failed to read request" << std::endl;
-        }
-        return;
-    }
-    
-    // Parse request
-    Request req;
-    req.parse(std::string(buffer, bytes_read));
-    
-    // Handle with parsed request
-    handleClient(client_fd, req);
-}
-
-void Server::handleClient(int client_fd, const Request& req) {
-    // NOTE: This method is for standalone mode only (not used by ServerManager)
-    // Handle request and create response
-    Response res = handleRequest(req);
-    
-    // Send response - check return value
-    std::string response_str = res.toString();
-    ssize_t bytes_sent = send(client_fd, response_str.c_str(), response_str.length(), 0);
-    if (bytes_sent <= 0) {
-        std::cerr << "Error: Failed to send response" << std::endl;
+void Server::stop() {
+    if (server_fd >= 0) {
+        close(server_fd);
+        server_fd = -1;
     }
 }
 
 Response Server::handleRequest(const Request& req) {
     // Find matching location
     const LocationConfig* location = findLocation(req.getPath());
+    
+    // Check for HTTP redirection first
+    if (location && location->redirect_code > 0 && !location->redirect_url.empty()) {
+        return serveRedirect(location->redirect_code, location->redirect_url);
+    }
     
     // Check if method is allowed
     if (!isMethodAllowed(req.getMethod(), location)) {
@@ -222,14 +182,24 @@ bool Server::isMethodAllowed(const std::string& method, const LocationConfig* lo
 }
 
 std::string Server::buildFilePath(const std::string& uri, const LocationConfig* location) {
-    (void)location; // Location doesn't override root in current config
-    
     std::string base_path = config.root;
-    std::string path = uri;
+    
+    // Use location's root if specified
+    if (location && !location->root.empty()) {
+        base_path = location->root;
+        // Remove the location path from URI since we're using a different root
+        std::string relative_path = uri;
+        if (relative_path.find(location->path) == 0) {
+            relative_path = relative_path.substr(location->path.length());
+        }
+        if (relative_path.empty() || relative_path[0] != '/') {
+            relative_path = "/" + relative_path;
+        }
+        return base_path + relative_path;
+    }
     
     // Build full path - keep the URI path as-is
-    // The location path is part of the filesystem structure
-    std::string full_path = base_path + path;
+    std::string full_path = base_path + uri;
     
     return full_path;
 }
@@ -257,7 +227,13 @@ Response Server::serveDirectory(const std::string& path, const LocationConfig* l
     if (index_path[index_path.length() - 1] != '/') {
         index_path += "/";
     }
-    index_path += config.index;
+    
+    // Use location's index if specified, otherwise use server's index
+    std::string index_file = config.index;
+    if (location && !location->index.empty()) {
+        index_file = location->index;
+    }
+    index_path += index_file;
     
     if (fileExists(index_path)) {
         return serveFile(index_path, location);
@@ -316,22 +292,8 @@ Response Server::serveDirectory(const std::string& path, const LocationConfig* l
         return res;
     }
     
-    // No index file and autoindex disabled = 403 Forbidden
-    Response res;
-    res.setStatus(403, "Forbidden");
-    res.setHeader("Content-Type", "text/html");
-    res.setBody(
-        "<!DOCTYPE html>\n"
-        "<html>\n"
-        "<head><title>403 Forbidden</title></head>\n"
-        "<body>\n"
-        "<h1>403 Forbidden</h1>\n"
-        "<p>Directory listing is disabled.</p>\n"
-        "</body>\n"
-        "</html>"
-    );
-    
-    return res;
+    // No index file and autoindex disabled = 404 Not Found
+    return serve404();
 }
 
 Response Server::serveErrorPage(int code, const std::string& message) {
@@ -379,6 +341,35 @@ Response Server::serve500() {
     return serveErrorPage(500, "Internal Server Error");
 }
 
+Response Server::serveRedirect(int code, const std::string& url) {
+    Response res;
+    std::string message;
+    
+    switch (code) {
+        case 301: message = "Moved Permanently"; break;
+        case 302: message = "Found"; break;
+        case 303: message = "See Other"; break;
+        case 307: message = "Temporary Redirect"; break;
+        case 308: message = "Permanent Redirect"; break;
+        default: message = "Redirect"; break;
+    }
+    
+    res.setStatus(code, message);
+    res.setHeader("Location", url);
+    res.setHeader("Content-Type", "text/html");
+    
+    std::ostringstream html;
+    html << "<!DOCTYPE html>\n<html>\n<head>\n";
+    html << "<title>" << code << " " << message << "</title>\n";
+    html << "</head>\n<body>\n";
+    html << "<h1>" << code << " " << message << "</h1>\n";
+    html << "<p>Redirecting to <a href=\"" << url << "\">" << url << "</a></p>\n";
+    html << "</body>\n</html>";
+    
+    res.setBody(html.str());
+    return res;
+}
+
 Response Server::serve200(const std::string& message) {
     Response res;
     res.setStatus(200, "OK");
@@ -388,13 +379,6 @@ Response Server::serve200(const std::string& message) {
     json << "{\"status\":\"success\",\"message\":\"" << message << "\"}";
     res.setBody(json.str());
     
-    return res;
-}
-
-Response Server::serve204() {
-    Response res;
-    res.setStatus(204, "No Content");
-    // 204 responses must not have a body
     return res;
 }
 
@@ -457,29 +441,6 @@ std::string Server::getUploadPath(const LocationConfig* location) const {
     return config.root + "/uploads";
 }
 
-std::string Server::extractFilename(const std::string& content_disposition) const {
-    // Look for filename="something"
-    size_t pos = content_disposition.find("filename=\"");
-    if (pos == std::string::npos) {
-        pos = content_disposition.find("filename=");
-        if (pos == std::string::npos) {
-            return "";
-        }
-        pos += 9;
-        size_t end = content_disposition.find_first_of(";\r\n ", pos);
-        if (end == std::string::npos) {
-            return content_disposition.substr(pos);
-        }
-        return content_disposition.substr(pos, end - pos);
-    }
-    pos += 10;
-    size_t end = content_disposition.find('"', pos);
-    if (end == std::string::npos) {
-        return "";
-    }
-    return content_disposition.substr(pos, end - pos);
-}
-
 std::string Server::generateFilename() const {
     std::ostringstream oss;
     oss << "upload_" << std::time(NULL) << "_" << (std::rand() % 10000);
@@ -487,8 +448,24 @@ std::string Server::generateFilename() const {
 }
 
 Response Server::handleCGI(const Request& req, const LocationConfig* location) {
-    // Get the script path
-    std::string script_path = CGI::getScriptPath(req.getPath(), config.root, location->cgi_extension);
+    // Get the correct document root (location root or server root)
+    std::string doc_root = config.root;
+    std::string url_path = req.getPath();
+    
+    // If location has a custom root, use it and adjust the path
+    if (location && !location->root.empty()) {
+        doc_root = location->root;
+        // Remove the location path prefix from URL to get relative path
+        if (url_path.find(location->path) == 0) {
+            url_path = url_path.substr(location->path.length());
+            if (url_path.empty() || url_path[0] != '/') {
+                url_path = "/" + url_path;
+            }
+        }
+    }
+    
+    // Get the script path using adjusted root and path
+    std::string script_path = CGI::getScriptPath(url_path, doc_root, location->cgi_extension);
     
     // Check if script exists
     struct stat st;
@@ -505,7 +482,7 @@ Response Server::handleCGI(const Request& req, const LocationConfig* location) {
     CGI cgi;
     
     // Setup CGI from request
-    cgi.setupFromRequest(req, script_path, location->cgi_path, config.root, 
+    cgi.setupFromRequest(req, script_path, location->cgi_path, doc_root, 
                          config.port, config.server_name);
     
     // Set timeout (30 seconds default)
@@ -743,11 +720,4 @@ Response Server::handleDelete(const Request& req, const LocationConfig* location
     
     // Return 200 with message
     return serve200("File deleted successfully");
-}
-
-void Server::stop() {
-    if (server_fd >= 0) {
-        close(server_fd);
-        server_fd = -1;
-    }
 }

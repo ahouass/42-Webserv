@@ -171,6 +171,12 @@ bool Config::parse(const std::string& filename) {
                     current_location->methods.push_back(tokens[i]);
                 }
             }
+            else if (directive == "root" && tokens.size() >= 2) {
+                current_location->root = tokens[1];
+            }
+            else if (directive == "index" && tokens.size() >= 2) {
+                current_location->index = tokens[1];
+            }
             else if (directive == "autoindex" && tokens.size() >= 2) {
                 current_location->autoindex = (tokens[1] == "on");
             }
@@ -186,6 +192,11 @@ bool Config::parse(const std::string& filename) {
             else if (directive == "client_max_body_size" && tokens.size() >= 2) {
                 current_location->client_max_body_size = parseSize(tokens[1]);
             }
+            else if (directive == "return" && tokens.size() >= 3) {
+                // return 301 http://example.com/new-url
+                current_location->redirect_code = std::atoi(tokens[1].c_str());
+                current_location->redirect_url = tokens[2];
+            }
         }
     }
     
@@ -196,57 +207,57 @@ bool Config::parse(const std::string& filename) {
         return false;
     }
     
+    // Validate that there are no duplicate port+server_name combinations
+    if (!validatePorts()) {
+        return false;
+    }
+    
+    return true;
+}
+
+bool Config::validatePorts() const {
+    // Check for duplicate port + server_name combinations
+    // Same port is allowed only if server_names are different (virtual hosting)
+    for (size_t i = 0; i < servers.size(); i++) {
+        for (size_t j = i + 1; j < servers.size(); j++) {
+            if (servers[i].port == servers[j].port &&
+                servers[i].server_name == servers[j].server_name) {
+                std::cerr << "Error: Duplicate server configuration detected" << std::endl;
+                std::cerr << "  Port " << servers[i].port << " with server_name '" 
+                          << servers[i].server_name << "' is defined multiple times" << std::endl;
+                return false;
+            }
+        }
+    }
     return true;
 }
 
 void Config::print() const {
-    std::cout << "\n========== Configuration ==========\n" << std::endl;
+    std::cout << "\n";
+    std::cout << "    ╦ ╦┌─┐┌┐ ┌─┐┌─┐┬─┐┬  ┬" << std::endl;
+    std::cout << "    ║║║├┤ ├┴┐└─┐├┤ ├┬┘└┐┌┘" << std::endl;
+    std::cout << "    ╚╩╝└─┘└─┘└─┘└─┘┴└─ └┘ " << std::endl;
+    std::cout << "         42 HTTP Server\n" << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" << std::endl;
+    std::cout << "  Servers: " << servers.size() << std::endl;
+    std::cout << "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" << std::endl;
     
     for (size_t i = 0; i < servers.size(); i++) {
         const ServerConfig& srv = servers[i];
-        std::cout << "Server " << (i + 1) << ":" << std::endl;
-        std::cout << "  Port: " << srv.port << std::endl;
-        std::cout << "  Server name: " << srv.server_name << std::endl;
-        std::cout << "  Root: " << srv.root << std::endl;
-        std::cout << "  Index: " << srv.index << std::endl;
-        std::cout << "  Max body size: " << srv.client_max_body_size << " bytes" << std::endl;
         
-        if (!srv.error_pages.empty()) {
-            std::cout << "  Error pages:" << std::endl;
-            for (std::map<int, std::string>::const_iterator it = srv.error_pages.begin();
-                 it != srv.error_pages.end(); ++it) {
-                std::cout << "    " << it->first << " -> " << it->second << std::endl;
-            }
-        }
+        std::cout << "┌─ Server #" << (i + 1) << " ─────────────────────────────" << std::endl;
+        std::cout << "│  Listen:    " << srv.server_name << ":" << srv.port << std::endl;
+        std::cout << "│  Root:      " << srv.root << std::endl;
+        std::cout << "│  Index:     " << srv.index << std::endl;
         
-        if (!srv.locations.empty()) {
-            std::cout << "  Locations:" << std::endl;
-            for (size_t j = 0; j < srv.locations.size(); j++) {
-                const LocationConfig& loc = srv.locations[j];
-                std::cout << "    " << loc.path << ":" << std::endl;
-                
-                if (!loc.methods.empty()) {
-                    std::cout << "      Methods: ";
-                    for (size_t k = 0; k < loc.methods.size(); k++) {
-                        std::cout << loc.methods[k] << " ";
-                    }
-                    std::cout << std::endl;
-                }
-                
-                std::cout << "      Autoindex: " << (loc.autoindex ? "on" : "off") << std::endl;
-                
-                if (!loc.upload_store.empty())
-                    std::cout << "      Upload store: " << loc.upload_store << std::endl;
-                if (!loc.cgi_extension.empty())
-                    std::cout << "      CGI extension: " << loc.cgi_extension << std::endl;
-                if (!loc.cgi_path.empty())
-                    std::cout << "      CGI path: " << loc.cgi_path << std::endl;
-                if (loc.client_max_body_size > 0)
-                    std::cout << "      Max body size: " << loc.client_max_body_size << " bytes" << std::endl;
-            }
-        }
-        std::cout << std::endl;
+        std::cout << "│  Max Body:  ";
+        if (srv.client_max_body_size >= 1048576)
+            std::cout << (srv.client_max_body_size / 1048576) << "MB" << std::endl;
+        else if (srv.client_max_body_size >= 1024)
+            std::cout << (srv.client_max_body_size / 1024) << "KB" << std::endl;
+        else
+            std::cout << srv.client_max_body_size << "B" << std::endl;
+        
+        std::cout << "└──────────────────────────────────────\n" << std::endl;
     }
-    
-    std::cout << "===================================\n" << std::endl;
 }

@@ -15,7 +15,7 @@ static inline bool is_base64(unsigned char c) {
     return (isalnum(c) || (c == '+') || (c == '/'));
 }
 
-Request::Request() : headers_complete(false), body_complete(false), content_length(0), multipart_parsed(false) {}
+Request::Request() : headers_complete(false), body_complete(false), content_length(0), is_chunked(false), multipart_parsed(false) {}
 
 void Request::reset() {
     method.clear();
@@ -27,6 +27,7 @@ void Request::reset() {
     headers_complete = false;
     body_complete = false;
     content_length = 0;
+    is_chunked = false;
     multipart_parts.clear();
     multipart_parsed = false;
 }
@@ -139,6 +140,54 @@ std::string Request::quotedPrintableDecode(const std::string& str) {
     return result;
 }
 
+// Decode chunked transfer encoding
+// Format: <size_hex>\r\n<data>\r\n...<size_hex>\r\n<data>\r\n0\r\n\r\n
+std::string Request::unchunkBody(const std::string& chunked_body) const {
+    std::string result;
+    size_t pos = 0;
+    
+    while (pos < chunked_body.length()) {
+        // Find the end of the chunk size line
+        size_t line_end = chunked_body.find("\r\n", pos);
+        if (line_end == std::string::npos) {
+            break;
+        }
+        
+        // Parse chunk size (hex)
+        std::string size_str = chunked_body.substr(pos, line_end - pos);
+        // Remove any chunk extensions (after semicolon)
+        size_t semi = size_str.find(';');
+        if (semi != std::string::npos) {
+            size_str = size_str.substr(0, semi);
+        }
+        
+        char* end_ptr;
+        size_t chunk_size = strtol(size_str.c_str(), &end_ptr, 16);
+        
+        // If chunk size is 0, we're done
+        if (chunk_size == 0) {
+            break;
+        }
+        
+        // Move past the size line
+        pos = line_end + 2;
+        
+        // Extract chunk data
+        if (pos + chunk_size <= chunked_body.length()) {
+            result += chunked_body.substr(pos, chunk_size);
+            pos += chunk_size;
+        }
+        
+        // Skip trailing \r\n after chunk data
+        if (pos + 2 <= chunked_body.length() && 
+            chunked_body[pos] == '\r' && chunked_body[pos + 1] == '\n') {
+            pos += 2;
+        }
+    }
+    
+    return result;
+}
+
 void Request::appendData(const std::string& data) {
     raw_data += data;
     
@@ -146,15 +195,24 @@ void Request::appendData(const std::string& data) {
     if (headers_complete) {
         size_t header_end = raw_data.find("\r\n\r\n");
         if (header_end != std::string::npos) {
-            body = raw_data.substr(header_end + 4);
+            std::string raw_body = raw_data.substr(header_end + 4);
             
             // Check if body is now complete
-            if (content_length == 0 || body.length() >= content_length) {
+            if (is_chunked) {
+                // For chunked encoding, look for terminating 0\r\n\r\n
+                if (raw_body.find("0\r\n\r\n") != std::string::npos) {
+                    body = unchunkBody(raw_body);
+                    body_complete = true;
+                }
+            } else if (content_length == 0 || raw_body.length() >= content_length) {
                 body_complete = true;
+                body = raw_body;
                 // Trim body to content_length
                 if (content_length > 0 && body.length() > content_length) {
                     body = body.substr(0, content_length);
                 }
+            } else {
+                body = raw_body;
             }
         }
     }
@@ -211,13 +269,26 @@ bool Request::parseHeaders() {
         content_length = std::atol(cl.c_str());
     }
     
+    // Check for chunked transfer encoding
+    std::string te = getHeader("Transfer-Encoding");
+    if (te.find("chunked") != std::string::npos) {
+        is_chunked = true;
+    }
+    
     headers_complete = true;
     
     // Extract body (everything after \r\n\r\n)
     body = raw_data.substr(header_end + 4);
     
     // Check if body is complete
-    if (content_length == 0 || body.length() >= content_length) {
+    if (is_chunked) {
+        // For chunked encoding, check for terminating chunk (0\r\n\r\n)
+        if (body.find("0\r\n\r\n") != std::string::npos) {
+            // Unchunk the body
+            body = unchunkBody(body);
+            body_complete = true;
+        }
+    } else if (content_length == 0 || body.length() >= content_length) {
         body_complete = true;
         // Trim body to content_length
         if (content_length > 0 && body.length() > content_length) {
@@ -580,26 +651,6 @@ bool Request::parseMultipart() {
     return !multipart_parts.empty();
 }
 
-// Helper methods for multipart data
-bool Request::hasFileParts() const {
-    for (size_t i = 0; i < multipart_parts.size(); i++) {
-        if (multipart_parts[i].is_file) {
-            return true;
-        }
-    }
-    return false;
-}
-
-size_t Request::getFileCount() const {
-    size_t count = 0;
-    for (size_t i = 0; i < multipart_parts.size(); i++) {
-        if (multipart_parts[i].is_file) {
-            count++;
-        }
-    }
-    return count;
-}
-
 size_t Request::getTotalUploadSize() const {
     size_t total = 0;
     for (size_t i = 0; i < multipart_parts.size(); i++) {
@@ -608,40 +659,6 @@ size_t Request::getTotalUploadSize() const {
         }
     }
     return total;
-}
-
-std::map<std::string, std::string> Request::parseFormData() const {
-    std::map<std::string, std::string> form_data;
-    
-    std::string ct = getHeader("Content-Type");
-    if (ct.find("application/x-www-form-urlencoded") == std::string::npos) {
-        return form_data;
-    }
-    
-    // Parse key=value&key2=value2 format
-    std::string data = body;
-    size_t pos = 0;
-    
-    while (pos < data.length()) {
-        size_t amp = data.find('&', pos);
-        std::string pair;
-        if (amp == std::string::npos) {
-            pair = data.substr(pos);
-            pos = data.length();
-        } else {
-            pair = data.substr(pos, amp - pos);
-            pos = amp + 1;
-        }
-        
-        size_t eq = pair.find('=');
-        if (eq != std::string::npos) {
-            std::string key = urlDecode(pair.substr(0, eq));
-            std::string value = urlDecode(pair.substr(eq + 1));
-            form_data[key] = value;
-        }
-    }
-    
-    return form_data;
 }
 
 std::map<std::string, std::string> Request::parseQueryString() const {
@@ -679,13 +696,4 @@ std::map<std::string, std::string> Request::parseQueryString() const {
     }
     
     return params;
-}
-
-std::string Request::getQueryParam(const std::string& key) const {
-    std::map<std::string, std::string> params = parseQueryString();
-    std::map<std::string, std::string>::const_iterator it = params.find(key);
-    if (it != params.end()) {
-        return it->second;
-    }
-    return "";
 }

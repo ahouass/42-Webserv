@@ -8,14 +8,18 @@
 // Represents a location block
 struct LocationConfig {
     std::string path;                      // "/" or "/upload"
+    std::string root;                      // Custom root for this location
+    std::string index;                     // Custom index file for this location
     std::vector<std::string> methods;      // ["GET", "POST"]
     bool autoindex;                        // true/false
     std::string upload_store;              // "./www/uploads"
     std::string cgi_extension;             // ".py"
     std::string cgi_path;                  // "/usr/bin/python3"
     size_t client_max_body_size;           // Override for this location (0 = use server default)
+    int redirect_code;                     // 301, 302, etc. (0 = no redirect)
+    std::string redirect_url;              // URL to redirect to
     
-    LocationConfig() : autoindex(false), client_max_body_size(0) {}
+    LocationConfig() : autoindex(false), client_max_body_size(0), redirect_code(0) {}
 };
 
 // Represents a server block
@@ -40,13 +44,14 @@ public:
     Config();
     bool parse(const std::string& filename);
     const std::vector<ServerConfig>& getServers() const { return servers; }
-    void print() const; // For debugging
+    void print() const;
     
 private:
     std::string trim(const std::string& str);
     std::vector<std::string> split(const std::string& str, char delimiter);
     size_t parseSize(const std::string& size_str);
     bool isNumber(const std::string& str);
+    bool validatePorts() const;
 };
 
 #endif

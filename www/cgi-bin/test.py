@@ -36,8 +36,8 @@ print("""<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-    <h1>🐍 CGI Script Running!</h1>
-    <p class="success">✅ Python CGI is working correctly!</p>
+    <h1>CGI Script Running!</h1>
+    <p class="success">Python CGI is working correctly!</p>
     
     <h2>Environment Variables</h2>
     <ul>""")
@@ -59,14 +59,14 @@ print("""</ul>
     
     <div class="links">
         <h2>Test Other CGI Scripts</h2>
-        <a href="/cgi-bin/form.py">📝 Form Handler</a>
-        <a href="/cgi-bin/api.py">🔌 JSON API</a>
-        <a href="/cgi-bin/status.py">📊 Status Codes</a>
-        <a href="/cgi-bin/redirect.py?url=/cgi-bin/test.py">↪️ Redirect Test</a>
-        <a href="/cgi-bin/test.py?name=test&value=123">❓ Query String</a>
+        <a href="/cgi-bin/form.py">Form Handler</a>
+        <a href="/cgi-bin/api.py">JSON API</a>
+        <a href="/cgi-bin/status.py">Status Codes</a>
+        <a href="/cgi-bin/redirect.py?url=/cgi-bin/test.py">Redirect Test</a>
+        <a href="/cgi-bin/test.py?name=test&value=123">uery String</a>
     </div>
     
-    <p style="margin-top: 30px;"><a href="/">← Back to Home</a></p>
+    <p style="margin-top: 30px;"><a href="/">Back to Home</a></p>
 </div>
 </body>
 </html>""")
