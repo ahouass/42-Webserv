@@ -183,11 +183,24 @@ bool Config::parse(const std::string& filename) {
             else if (directive == "upload_store" && tokens.size() >= 2) {
                 current_location->upload_store = tokens[1];
             }
+            else if (directive == "cgi" && tokens.size() >= 3) {
+                // cgi .py /usr/bin/python3
+                // cgi .php /usr/bin/php-cgi
+                current_location->cgi_handlers[tokens[1]] = tokens[2];
+            }
             else if (directive == "cgi_extension" && tokens.size() >= 2) {
-                current_location->cgi_extension = tokens[1];
+                // Legacy support: cgi_extension .py with cgi_path
+                // Store temporarily, will be paired with cgi_path
+                current_location->cgi_handlers[tokens[1]] = "";
             }
             else if (directive == "cgi_path" && tokens.size() >= 2) {
-                current_location->cgi_path = tokens[1];
+                // Legacy support: set path for last empty-path extension
+                for (std::map<std::string, std::string>::iterator it = current_location->cgi_handlers.begin();
+                     it != current_location->cgi_handlers.end(); ++it) {
+                    if (it->second.empty()) {
+                        it->second = tokens[1];
+                    }
+                }
             }
             else if (directive == "client_max_body_size" && tokens.size() >= 2) {
                 current_location->client_max_body_size = parseSize(tokens[1]);

@@ -32,6 +32,11 @@ std::string Response::toString() const {
         response << it->first << ": " << it->second << "\r\n";
     }
     
+    // Set-Cookie headers (can have multiple)
+    for (size_t i = 0; i < cookies.size(); i++) {
+        response << "Set-Cookie: " << cookies[i] << "\r\n";
+    }
+    
     // Empty line separates headers from body
     response << "\r\n";
     
@@ -39,6 +44,41 @@ std::string Response::toString() const {
     response << body;
     
     return response.str();
+}
+
+// Set a cookie with optional attributes
+void Response::setCookie(const std::string& name, const std::string& value,
+                         int max_age, const std::string& path,
+                         bool http_only, bool secure) {
+    std::ostringstream cookie;
+    cookie << name << "=" << value;
+    
+    if (!path.empty()) {
+        cookie << "; Path=" << path;
+    }
+    
+    if (max_age >= 0) {
+        cookie << "; Max-Age=" << max_age;
+    }
+    
+    if (http_only) {
+        cookie << "; HttpOnly";
+    }
+    
+    if (secure) {
+        cookie << "; Secure";
+    }
+    
+    cookie << "; SameSite=Lax";
+    
+    cookies.push_back(cookie.str());
+}
+
+// Delete a cookie by setting it expired
+void Response::deleteCookie(const std::string& name, const std::string& path) {
+    std::ostringstream cookie;
+    cookie << name << "=deleted; Path=" << path << "; Max-Age=0";
+    cookies.push_back(cookie.str());
 }
 
 // Get Content-Type based on file extension

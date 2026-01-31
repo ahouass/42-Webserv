@@ -3,9 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>404 - Page Not Found</title>
+    <title>404 - Page Not Found • 42 Webserv</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+        
+        :root {
+            --primary: #4f46e5;
+            --primary-dark: #4338ca;
+            --secondary: #10b981;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --gray: #6b7280;
+            --border: #e5e7eb;
+        }
         
         * {
             margin: 0;
@@ -14,55 +24,60 @@
         }
         
         body {
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: var(--dark);
+            line-height: 1.6;
             min-height: 100vh;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
             padding: 20px;
-            color: #333;
         }
         
         .error-container {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 24px;
+            background: white;
+            border-radius: 20px;
             padding: 60px 40px;
             max-width: 800px;
             width: 100%;
             text-align: center;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            animation: fadeIn 0.6s ease-out;
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            position: relative;
+            overflow: hidden;
         }
         
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+        .error-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
         }
         
         .error-code {
             font-size: 120px;
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
             margin-bottom: 20px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            line-height: 1;
         }
         
         .error-title {
             font-size: 2.5rem;
-            color: #2d3748;
+            color: var(--dark);
             margin-bottom: 16px;
             font-weight: 600;
         }
         
         .error-message {
             font-size: 1.2rem;
-            color: #718096;
+            color: var(--gray);
             margin-bottom: 40px;
             line-height: 1.6;
             max-width: 600px;
@@ -72,104 +87,69 @@
         
         .illustration {
             margin: 40px 0;
-            color: #a0aec0;
+            color: var(--primary);
+            opacity: 0.6;
         }
         
         .illustration svg {
             width: 200px;
             height: 200px;
-            opacity: 0.8;
         }
         
         .actions {
             display: flex;
             justify-content: center;
-            gap: 20px;
+            gap: 15px;
             flex-wrap: wrap;
             margin-top: 40px;
         }
         
         .btn {
-            padding: 16px 32px;
-            border-radius: 50px;
-            font-size: 1rem;
-            font-weight: 600;
+            padding: 12px 24px;
+            border-radius: 10px;
             text-decoration: none;
+            font-weight: 500;
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            border: none;
+            gap: 8px;
+            border: 2px solid transparent;
+        }
+        
+        .btn svg {
+            width: 18px;
+            height: 18px;
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--primary);
             color: white;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
         }
         
         .btn-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.3);
         }
         
         .btn-secondary {
-            background: #edf2f7;
-            color: #4a5568;
-            border: 2px solid #e2e8f0;
+            background: white;
+            color: var(--primary);
+            border-color: var(--border);
         }
         
         .btn-secondary:hover {
-            background: #e2e8f0;
-            transform: translateY(-3px);
-        }
-        
-        .search-box {
-            margin: 40px auto 0;
-            max-width: 500px;
-            position: relative;
-        }
-        
-        .search-box input {
-            width: 100%;
-            padding: 16px 20px;
-            border: 2px solid #e2e8f0;
-            border-radius: 50px;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-        }
-        
-        .search-box input:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-        }
-        
-        .search-box button {
-            position: absolute;
-            right: 6px;
-            top: 6px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 50px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .search-box button:hover {
-            transform: scale(1.05);
+            background: var(--light);
+            transform: translateY(-2px);
         }
         
         .server-info {
             margin-top: 40px;
             padding-top: 30px;
-            border-top: 1px solid #e2e8f0;
-            color: #a0aec0;
+            border-top: 1px solid var(--border);
+            color: var(--gray);
             font-size: 0.9rem;
+            font-family: 'JetBrains Mono', monospace;
         }
         
         @media (max-width: 768px) {
@@ -179,6 +159,10 @@
             
             .error-title {
                 font-size: 2rem;
+            }
+            
+            .error-container {
+                padding: 40px 30px;
             }
             
             .actions {
@@ -198,11 +182,11 @@
     <div class="error-container">
         <div class="error-code">404</div>
         
-        <h1 class="error-title">Oops! Page Not Found</h1>
+        <h1 class="error-title">Page Not Found</h1>
         
         <p class="error-message">
-            The page you're looking for seems to have wandered off into the digital void. 
-            It might have been moved, deleted, or perhaps it never existed in the first place.
+            The page you're looking for doesn't exist or has been moved. 
+            Let's get you back on track!
         </p>
         
         <div class="illustration">
@@ -214,61 +198,29 @@
         
         <div class="actions">
             <a href="/" class="btn btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                 </svg>
-                Go Back Home
+                Go to Homepage
             </a>
             
             <a href="javascript:history.back()" class="btn btn-secondary">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
-                Previous Page
+                Go Back
             </a>
         </div>
-
         
         <div class="server-info">
-            <p>42 Webserv • 404 Not Found • <span id="currentPath"></span></p>
-            <p style="font-size: 0.8rem; margin-top: 5px;">HTTP/1.1 Error Response</p>
+            <div>42 Webserv • 404 Not Found</div>
+            <div>Path: <span id="currentPath"></span></div>
+            <div>HTTP/1.1 Error Response</div>
         </div>
     </div>
     
     <script>
-        // Set current path
         document.getElementById('currentPath').textContent = window.location.pathname;
-        
-        // Search functionality
-        document.getElementById('searchBtn').addEventListener('click', function() {
-            const searchTerm = document.getElementById('searchInput').value.trim();
-            if (searchTerm) {
-                alert(`Searching for: ${searchTerm}\n(Search functionality would be implemented on a live site)`);
-                // In a real implementation, you would redirect to search results
-                // window.location.href = `/search?q=${encodeURIComponent(searchTerm)}`;
-            }
-        });
-        
-        // Allow Enter key to trigger search
-        document.getElementById('searchInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                document.getElementById('searchBtn').click();
-            }
-        });
-        
-        // Auto-focus search input
-        document.getElementById('searchInput').focus();
-        
-        // Add some dynamic text
-        const messages = [
-            "Lost in cyberspace? Don't worry, it happens to the best of us.",
-            "This page has gone on a digital adventure.",
-            "Even the best servers lose a page sometimes.",
-            "404: Digital footprint not found."
-        ];
-        
-        // Randomly select a different message on refresh (optional)
-        // document.querySelector('.error-message').textContent = messages[Math.floor(Math.random() * messages.length)];
     </script>
 </body>
 </html>

@@ -105,10 +105,21 @@ Response Server::handleRequest(const Request& req) {
         }
     }
     
-    // Check for CGI request
-    if (location && !location->cgi_extension.empty()) {
-        if (CGI::isCGIRequest(req.getPath(), location->cgi_extension)) {
-            return handleCGI(req, location);
+    // Check for CGI request (supports multiple CGI types)
+    if (location && !location->cgi_handlers.empty()) {
+        // Extract file extension from path
+        std::string path = req.getPath();
+        size_t query_pos = path.find('?');
+        if (query_pos != std::string::npos) {
+            path = path.substr(0, query_pos);
+        }
+        
+        // Check each registered CGI extension
+        for (std::map<std::string, std::string>::const_iterator it = location->cgi_handlers.begin();
+             it != location->cgi_handlers.end(); ++it) {
+            if (CGI::isCGIRequest(path, it->first)) {
+                return handleCGI(req, location, it->first, it->second);
+            }
         }
     }
     
@@ -447,7 +458,8 @@ std::string Server::generateFilename() const {
     return oss.str();
 }
 
-Response Server::handleCGI(const Request& req, const LocationConfig* location) {
+Response Server::handleCGI(const Request& req, const LocationConfig* location,
+                           const std::string& cgi_extension, const std::string& cgi_path) {
     // Get the correct document root (location root or server root)
     std::string doc_root = config.root;
     std::string url_path = req.getPath();
@@ -465,7 +477,7 @@ Response Server::handleCGI(const Request& req, const LocationConfig* location) {
     }
     
     // Get the script path using adjusted root and path
-    std::string script_path = CGI::getScriptPath(url_path, doc_root, location->cgi_extension);
+    std::string script_path = CGI::getScriptPath(url_path, doc_root, cgi_extension);
     
     // Check if script exists
     struct stat st;
@@ -474,7 +486,7 @@ Response Server::handleCGI(const Request& req, const LocationConfig* location) {
     }
     
     // Check if script is executable (for direct execution without interpreter)
-    if (location->cgi_path.empty() && !(st.st_mode & S_IXUSR)) {
+    if (cgi_path.empty() && !(st.st_mode & S_IXUSR)) {
         return serve403();
     }
     
@@ -482,7 +494,7 @@ Response Server::handleCGI(const Request& req, const LocationConfig* location) {
     CGI cgi;
     
     // Setup CGI from request
-    cgi.setupFromRequest(req, script_path, location->cgi_path, doc_root, 
+    cgi.setupFromRequest(req, script_path, cgi_path, doc_root, 
                          config.port, config.server_name);
     
     // Set timeout (30 seconds default)

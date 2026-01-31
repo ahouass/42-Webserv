@@ -697,3 +697,66 @@ std::map<std::string, std::string> Request::parseQueryString() const {
     
     return params;
 }
+
+// Cookie support - parse Cookie header
+std::map<std::string, std::string> Request::getCookies() const {
+    std::map<std::string, std::string> cookies;
+    std::string cookie_header = getHeader("Cookie");
+    
+    if (cookie_header.empty()) {
+        return cookies;
+    }
+    
+    size_t pos = 0;
+    while (pos < cookie_header.length()) {
+        // Skip whitespace
+        while (pos < cookie_header.length() && (cookie_header[pos] == ' ' || cookie_header[pos] == '\t')) {
+            pos++;
+        }
+        
+        // Find the next semicolon or end
+        size_t end = cookie_header.find(';', pos);
+        std::string pair;
+        if (end == std::string::npos) {
+            pair = cookie_header.substr(pos);
+            pos = cookie_header.length();
+        } else {
+            pair = cookie_header.substr(pos, end - pos);
+            pos = end + 1;
+        }
+        
+        // Parse name=value
+        size_t eq = pair.find('=');
+        if (eq != std::string::npos) {
+            std::string name = pair.substr(0, eq);
+            std::string value = pair.substr(eq + 1);
+            
+            // Trim whitespace from name
+            size_t start = name.find_first_not_of(" \t");
+            size_t finish = name.find_last_not_of(" \t");
+            if (start != std::string::npos) {
+                name = name.substr(start, finish - start + 1);
+            }
+            
+            // Trim whitespace and quotes from value
+            start = value.find_first_not_of(" \t\"");
+            finish = value.find_last_not_of(" \t\"");
+            if (start != std::string::npos) {
+                value = value.substr(start, finish - start + 1);
+            }
+            
+            cookies[name] = value;
+        }
+    }
+    
+    return cookies;
+}
+
+std::string Request::getCookie(const std::string& name) const {
+    std::map<std::string, std::string> cookies = getCookies();
+    std::map<std::string, std::string>::const_iterator it = cookies.find(name);
+    if (it != cookies.end()) {
+        return it->second;
+    }
+    return "";
+}

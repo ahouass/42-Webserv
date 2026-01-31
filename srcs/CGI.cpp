@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <sstream>
+#include <climits>
 
 CGI::CGI() : content_length(0), server_port(80), timeout_seconds(30), status(CGI_SUCCESS) {}
 
@@ -126,6 +127,9 @@ char** CGI::buildEnvArray() const {
     env_vars.push_back("GATEWAY_INTERFACE=CGI/1.1");
     env_vars.push_back("SERVER_PROTOCOL=HTTP/1.1");
     env_vars.push_back("SERVER_SOFTWARE=Webserv/1.0");
+    
+    // Required for PHP-CGI (force-cgi-redirect security feature)
+    env_vars.push_back("REDIRECT_STATUS=200");
     
     env_vars.push_back("REQUEST_METHOD=" + request_method);
     env_vars.push_back("QUERY_STRING=" + query_string);
@@ -552,5 +556,14 @@ std::string CGI::getScriptPath(const std::string& url_path, const std::string& d
     }
     
     // Build full filesystem path
-    return document_root + script_url;
+    std::string relative_path = document_root + script_url;
+    
+    // Convert to absolute path (required for PHP-CGI)
+    char abs_path[PATH_MAX];
+    if (realpath(relative_path.c_str(), abs_path) != NULL) {
+        return std::string(abs_path);
+    }
+    
+    // Fallback to relative path if realpath fails
+    return relative_path;
 }

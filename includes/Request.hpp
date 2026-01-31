@@ -73,6 +73,10 @@ public:
     static std::string quotedPrintableDecode(const std::string& str);
     bool isChunked() const { return is_chunked; }
     
+    // Cookie support
+    std::map<std::string, std::string> getCookies() const;
+    std::string getCookie(const std::string& name) const;
+    
 private:
     void parseContentDisposition(const std::string& header, std::string& name, std::string& filename);
     void parseContentType(const std::string& header, std::string& mime_type, std::string& charset);

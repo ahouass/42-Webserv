@@ -64,8 +64,9 @@ private:
     Response handleDelete(const Request& req, const LocationConfig* location);
     bool deleteFile(const std::string& path);
     
-    // CGI handling
-    Response handleCGI(const Request& req, const LocationConfig* location);
+    // CGI handling (supports multiple CGI types)
+    Response handleCGI(const Request& req, const LocationConfig* location,
+                       const std::string& cgi_extension, const std::string& cgi_path);
     
     // Helper
     std::string buildFilePath(const std::string& uri, const LocationConfig* location);
