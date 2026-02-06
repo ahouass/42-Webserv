@@ -69,6 +69,7 @@ def page_bottom():
 </form>
 
 <p><a href="/cgi-bin/form.py?x=42&y=hello">Test GET</a></p>
+<p><a href="/cgi-bin/">← Back To Tests</a></p>
 <p><a href="/">Back Home</a></p>
 </div>
 </body>

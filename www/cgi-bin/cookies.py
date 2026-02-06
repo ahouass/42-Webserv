@@ -86,8 +86,8 @@ print("""        <div class="card">
             <h2>Actions</h2>
             <ul class="links">
                 <li><a href="?clear=1">🗑️ Clear All Cookies</a></li>
-                <li><a href="/cgi-bin/session.py">→ Session Demo</a></li>
-                <li><a href="/">→ Back Home</a></li>
+                <li><a href="/cgi-bin/">← Back To Tests</a></li>
+                <li><a href="/">← Back Home</a></li>
             </ul>
         </div>
     </div>
