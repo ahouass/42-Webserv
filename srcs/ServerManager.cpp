@@ -90,19 +90,25 @@ void	ServerManager::run()
 		if (activity == 0)
 			continue ;
 		
-		// Snapshot events before processing (handlers may modify poll_fds)
-		std::vector<std::pair<int, short> >	events;
+		// === FIRST PASS: Drain accept queues on ALL listening sockets immediately ===
+		// Listening sockets are always at stable indices (never removed), so direct iteration is safe.
 		for (size_t i = 0; i < poll_fds.size(); i++)
 		{
-			if (poll_fds[i].revents != 0)
-				events.push_back(std::make_pair(poll_fds[i].fd, poll_fds[i].revents));
+			if (poll_fds[i].revents & POLLIN && server_fds.find(poll_fds[i].fd) != server_fds.end())
+				handleNewConnection(fd_to_server[poll_fds[i].fd]);
 		}
 		
-		// Process events from snapshot (safe even when poll_fds is modified)
-		for (size_t i = 0; i < events.size(); i++)
+		// === SECOND PASS: Handle client sockets and CGI pipes ===
+		// Handlers may add/remove entries in poll_fds, so use index-based iteration
+		// and re-check bounds each step. Skip listening sockets (already handled).
+		for (size_t i = 0; i < poll_fds.size(); i++)
 		{
-			int		fd = events[i].first;
-			short	revents = events[i].second;
+			int		fd = poll_fds[i].fd;
+			short	revents = poll_fds[i].revents;
+			
+			// Skip fds with no events, and skip listening sockets (handled in first pass)
+			if (revents == 0 || server_fds.find(fd) != server_fds.end())
+				continue ;
 			
 			// --- CGI pipe fd handling ---
 			std::map<int, int>::iterator	cgi_it = cgi_fd_to_client.find(fd);
@@ -116,6 +122,7 @@ void	ServerManager::run()
 					removePollFd(fd);
 					close(fd);
 					cgi_fd_to_client.erase(fd);
+					i--;	// Entry removed, adjust index
 					continue ;
 				}
 
@@ -124,6 +131,8 @@ void	ServerManager::run()
 				if (revents & (POLLERR | POLLNVAL))
 				{
 					finishCGI(client_fd, false);
+					// poll_fds may have changed, restart scan from beginning
+					i = static_cast<size_t>(-1);
 					continue ;
 				}
 				if ((revents & POLLIN) && fd == state.cgi_stdout_fd)
@@ -135,6 +144,7 @@ void	ServerManager::run()
 				{
 					handleCGIRead(fd);
 					finishCGI(client_fd, true);
+					i = static_cast<size_t>(-1);
 					continue ;
 				}
 				if ((revents & POLLOUT) && fd == state.cgi_stdin_fd)
@@ -145,20 +155,18 @@ void	ServerManager::run()
 				continue ;
 			}
 
-			// --- Error/hangup on non-CGI fds ---
+			// --- Error/hangup on client fds ---
 			if (revents & (POLLERR | POLLNVAL))
 			{
-				if (server_fds.find(fd) == server_fds.end())
-					closeClient(fd);
+				closeClient(fd);
+				i--;	// Entry removed, adjust index
 				continue ;
 			}
 
 			// --- Read events (POLLIN) ---
 			if (revents & POLLIN)
 			{
-				if (server_fds.find(fd) != server_fds.end())
-					handleNewConnection(fd_to_server[fd]);
-				else if (client_states.find(fd) != client_states.end())
+				if (client_states.find(fd) != client_states.end())
 					handleClientRequest(fd);
 			}
 
@@ -168,16 +176,16 @@ void	ServerManager::run()
 
 			// --- Write events (POLLOUT) ---
 			if (revents & POLLOUT)
-			{
-				if (server_fds.find(fd) == server_fds.end())
-					handleClientWrite(fd);
-			}
+				handleClientWrite(fd);
 
 			// --- POLLHUP without POLLIN means peer closed ---
 			if ((revents & POLLHUP) && !(revents & POLLIN))
 			{
-				if (server_fds.find(fd) == server_fds.end() && client_states.find(fd) != client_states.end())
+				if (client_states.find(fd) != client_states.end())
+				{
 					closeClient(fd);
+					i--;	// Entry removed, adjust index
+				}
 			}
 		}
 	}
