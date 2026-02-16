@@ -87,54 +87,56 @@ void	ServerManager::run()
 			last_timeout_check = time(NULL);
 		}
 		
-		// Check each file descriptor for BOTH read and write events
+		if (activity == 0)
+			continue ;
+		
+		// Snapshot events before processing (handlers may modify poll_fds)
+		std::vector<std::pair<int, short> >	events;
 		for (size_t i = 0; i < poll_fds.size(); i++)
 		{
-			int		fd = poll_fds[i].fd;
-			short	revents = poll_fds[i].revents;
+			if (poll_fds[i].revents != 0)
+				events.push_back(std::make_pair(poll_fds[i].fd, poll_fds[i].revents));
+		}
+		
+		// Process events from snapshot (safe even when poll_fds is modified)
+		for (size_t i = 0; i < events.size(); i++)
+		{
+			int		fd = events[i].first;
+			short	revents = events[i].second;
 			
-			// Check if this is a CGI pipe fd
+			// --- CGI pipe fd handling ---
 			std::map<int, int>::iterator	cgi_it = cgi_fd_to_client.find(fd);
-
 			if (cgi_it != cgi_fd_to_client.end())
 			{
-				int										client_fd = cgi_it->second;
+				int	client_fd = cgi_it->second;
 				std::map<int, ClientState>::iterator	state_it = client_states.find(client_fd);
 				if (state_it == client_states.end())
 				{
-					// Client gone, cleanup CGI
+					// Client gone, cleanup CGI pipe
 					removePollFd(fd);
 					close(fd);
-					cgi_fd_to_client.erase(cgi_it);
+					cgi_fd_to_client.erase(fd);
 					continue ;
 				}
 
 				ClientState&	state = state_it->second;
 
-				// Handle CGI pipe errors/hangup
 				if (revents & (POLLERR | POLLNVAL))
 				{
 					finishCGI(client_fd, false);
 					continue ;
 				}
-
-				// Handle CGI stdout read (POLLIN)
 				if ((revents & POLLIN) && fd == state.cgi_stdout_fd)
 				{
 					handleCGIRead(fd);
 					continue ;
 				}
-				
-				// Handle POLLHUP on CGI stdout (CGI process finished)
 				if ((revents & POLLHUP) && fd == state.cgi_stdout_fd)
 				{
-					// Read any remaining data first
 					handleCGIRead(fd);
 					finishCGI(client_fd, true);
 					continue ;
 				}
-				
-				// Handle CGI stdin write (POLLOUT)
 				if ((revents & POLLOUT) && fd == state.cgi_stdin_fd)
 				{
 					handleCGIWrite(fd);
@@ -143,33 +145,39 @@ void	ServerManager::run()
 				continue ;
 			}
 
-			// Handle errors and hangups on non-CGI fds
-			if (revents & (POLLERR | POLLHUP | POLLNVAL))
+			// --- Error/hangup on non-CGI fds ---
+			if (revents & (POLLERR | POLLNVAL))
 			{
 				if (server_fds.find(fd) == server_fds.end())
-				{
-					// Client socket error
 					closeClient(fd);
-					continue;
-				}
+				continue ;
 			}
 
-			// Check for read events (POLLIN)
+			// --- Read events (POLLIN) ---
 			if (revents & POLLIN)
 			{
-				// Check if this is a server socket (new connection)
 				if (server_fds.find(fd) != server_fds.end())
-					handleNewConnection(fd_to_server[fd]);	// This is a server socket - new connection
-				else
-					handleClientRequest(fd);				// This is a client socket - handle request
+					handleNewConnection(fd_to_server[fd]);
+				else if (client_states.find(fd) != client_states.end())
+					handleClientRequest(fd);
 			}
 
-			// Check for write events (POLLOUT)
+			// Verify client still exists after read (may have been closed)
+			if (client_states.find(fd) == client_states.end())
+				continue ;
+
+			// --- Write events (POLLOUT) ---
 			if (revents & POLLOUT)
 			{
-				// Only client sockets should have POLLOUT
 				if (server_fds.find(fd) == server_fds.end())
 					handleClientWrite(fd);
+			}
+
+			// --- POLLHUP without POLLIN means peer closed ---
+			if ((revents & POLLHUP) && !(revents & POLLIN))
+			{
+				if (server_fds.find(fd) == server_fds.end() && client_states.find(fd) != client_states.end())
+					closeClient(fd);
 			}
 		}
 	}
@@ -180,30 +188,27 @@ void	ServerManager::handleNewConnection(int server_index)
 	Server*	server = servers[server_index];
 	int		server_fd = server->getServerFd();
 	
-	// Accept new connection
-	int	client_fd = accept(server_fd, NULL, NULL);
-
-	if (client_fd < 0)
+	// Drain the kernel accept queue (server socket is non-blocking)
+	// This is called only when poll() indicated POLLIN on the listening socket.
+	while (true)
 	{
-		std::cerr << "Accept failed on server " << (server_index + 1) << std::endl;
-		return ;
+		int	client_fd = accept(server_fd, NULL, NULL);
+
+		if (client_fd < 0)
+			break ;	// No more pending connections
+
+		// Set client socket to non-blocking mode
+		fcntl(client_fd, F_SETFL, O_NONBLOCK);
+
+		// Register for POLLIN only; POLLOUT is enabled when response is ready
+		addPollFd(client_fd, POLLIN);
+		fd_to_server[client_fd] = server_index;
+
+		// Initialize client state for incremental parsing
+		ClientState	state;
+		state.server_index = server_index;
+		client_states[client_fd] = state;
 	}
-
-	// Set client socket to non-blocking mode
-	if (fcntl(client_fd, F_SETFL, O_NONBLOCK) < 0)
-	{
-		close(client_fd);
-		return ;
-	}
-
-	// Add client to poll - register for BOTH read and write events
-	addPollFd(client_fd, POLLIN | POLLOUT);
-	fd_to_server[client_fd] = server_index;
-
-	// Initialize client state for incremental parsing
-	ClientState state;
-	state.server_index = server_index;
-	client_states[client_fd] = state;
 }
 
 void	ServerManager::handleClientRequest(int client_fd)
@@ -226,17 +231,14 @@ void	ServerManager::handleClientRequest(int client_fd)
 	if (it->second.cgi_in_progress)
 		return ;
 
-	// Read available data from socket
+	// ONE read per POLLIN event (poll() indicated readiness)
 	char	buffer[8192];
 	ssize_t	bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
 	
-	// Check return value properly (both -1 and 0)
+	// > 0: append data, == 0: peer closed, < 0: close (do NOT check errno)
 	if (bytes_read <= 0)
 	{
-		if (bytes_read == 0)
-			closeClient(client_fd);	// Client closed connection
-		else
-			closeClient(client_fd);	// bytes_read < 0: error occurred	// For non-blocking sockets, would-block is not a real error
+		closeClient(client_fd);
 		return ;
 	}
 	buffer[bytes_read] = '\0';
@@ -262,7 +264,8 @@ void	ServerManager::handleClientRequest(int client_fd)
 
 		if (req.getContentLength() > max_size)
 		{
-			// Queue 413 response
+			// Queue 413 response and close after sending
+			state.keep_alive = false;
 			Response	res;
 			res.setStatus(413, "Payload Too Large");
 			res.setHeader("Content-Type", "text/html");
@@ -278,6 +281,16 @@ void	ServerManager::handleClientRequest(int client_fd)
 		return;	// Still waiting for body data
 	
 	// Request is complete, process it
+
+	// Determine keep-alive behavior from Connection header
+	std::string	conn_header = req.getHeader("Connection");
+	// Case-insensitive comparison
+	for (size_t ci = 0; ci < conn_header.length(); ci++)
+		conn_header[ci] = tolower(conn_header[ci]);
+	if (conn_header == "close")
+		state.keep_alive = false;
+	else
+		state.keep_alive = true;
 
 	// Get the original server (based on which port received the connection)
 	Server*	original_server = servers[state.server_index];
@@ -321,6 +334,12 @@ void	ServerManager::handleClientRequest(int client_fd)
 	// Non-CGI request: get the response from server
 	Response	response = server->handleNonCGIRequest(req);
 	
+	// Set Connection header based on keep-alive decision
+	if (state.keep_alive)
+		response.setHeader("Connection", "keep-alive");
+	else
+		response.setHeader("Connection", "close");
+
 	// Queue the response to be sent when POLLOUT is ready
 	queueResponse(client_fd, response.toString());
 }
@@ -335,6 +354,9 @@ void	ServerManager::queueResponse(int client_fd, const std::string& response)
 	it->second.response_buffer = response;
 	it->second.bytes_sent = 0;
 	it->second.response_ready = true;
+
+	// Enable POLLOUT now that there is data to send
+	updatePollEvents(client_fd, POLLIN | POLLOUT);
 }
 
 void	ServerManager::handleClientWrite(int client_fd)
@@ -358,23 +380,30 @@ void	ServerManager::handleClientWrite(int client_fd)
 
 	if (remaining == 0)
 	{
-		// All data sent, reset for next request (keep-alive)
+		// All data sent
+		if (!state.keep_alive)
+		{
+			closeClient(client_fd);
+			return ;
+		}
+		// Reset for next request (keep-alive)
 		state.request.reset();
 		state.response_buffer.clear();
 		state.bytes_sent = 0;
 		state.response_ready = false;
 		state.last_activity = time(NULL);
+		// Disable POLLOUT until next response is ready
+		updatePollEvents(client_fd, POLLIN);
 		return ;
 	}
 	
-	// Write data to socket (only ONE write per poll cycle)
+	// ONE write per POLLOUT event (poll() indicated readiness)
 	const char*	data = state.response_buffer.c_str() + state.bytes_sent;
 	ssize_t		bytes_written = write(client_fd, data, remaining);
 
-	// Check return value properly (both -1 and 0)
+	// > 0: update bytes_sent, == 0: close, < 0: close (do NOT check errno)
 	if (bytes_written <= 0)
 	{
-		// Error or connection closed, remove client
 		closeClient(client_fd);
 		return ;
 	}
@@ -385,12 +414,20 @@ void	ServerManager::handleClientWrite(int client_fd)
 	// Check if we've sent everything
 	if (state.bytes_sent >= state.response_buffer.length())
 	{
-		// All data sent, reset for next request (keep-alive)
+		// All data sent
+		if (!state.keep_alive)
+		{
+			closeClient(client_fd);
+			return ;
+		}
+		// Reset for next request (keep-alive)
 		state.request.reset();
 		state.response_buffer.clear();
 		state.bytes_sent = 0;
 		state.response_ready = false;
 		state.last_activity = time(NULL);
+		// Disable POLLOUT until next response is ready
+		updatePollEvents(client_fd, POLLIN);
 	}
 }
 
@@ -715,6 +752,12 @@ void	ServerManager::finishCGI(int client_fd, bool success)
 		response.setHeader("Content-Type", "text/html");
 		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI execution failed</p></body></html>");
 	}
+
+	// Set Connection header based on keep-alive decision
+	if (state.keep_alive)
+		response.setHeader("Connection", "keep-alive");
+	else
+		response.setHeader("Connection", "close");
 
 	// Queue response
 	queueResponse(client_fd, response.toString());

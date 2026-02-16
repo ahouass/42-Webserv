@@ -239,6 +239,9 @@ CGIStatus	CGI::executeCgi(int& stdin_fd, int& stdout_fd, pid_t& child_pid)
 	}
 	if (pid == 0)
 	{
+		// Restore SIGPIPE default for CGI scripts (parent ignores it)
+		signal(SIGPIPE, SIG_DFL);
+
 		close(pipe_in[1]);
 		close(pipe_out[0]);
 		dup2(pipe_in[0], STDIN_FILENO);
