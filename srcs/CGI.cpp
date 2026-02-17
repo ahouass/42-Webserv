@@ -306,10 +306,8 @@ bool	CGI::parseOutputString(const std::string& output, Response& response) const
 		header_end = output.find("\n\n");
 		if (header_end == std::string::npos)
 		{
-			// No headers found, treat entire output as body
-			response.setBody(output);
-			response.setHeader("Content-Type", "text/html");
-			return true;
+			// No valid CGI header separator found - invalid CGI output
+			return (false);
 		}
 	}
 
@@ -395,7 +393,13 @@ Response	CGI::buildResponseFromOutput(const std::string& output) const
 		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI produced no output</p></body></html>");
 		return (response);
 	}
-	parseOutputString(output, response);
+	if (!parseOutputString(output, response))
+	{
+		response.setStatus(500, "Internal Server Error");
+		response.setHeader("Content-Type", "text/html");
+		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI produced invalid output (missing headers)</p></body></html>");
+		return (response);
+	}
 	return (response);
 }
 

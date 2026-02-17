@@ -20,6 +20,7 @@ class	Response
 		void				setStatus(int code, const std::string& message);
 		void				setHeader(const std::string& key, const std::string& value);
 		void				setBody(const std::string& content);
+		int					getStatusCode() const;
 		std::string			toString() const;
 		
 		// Cookie support

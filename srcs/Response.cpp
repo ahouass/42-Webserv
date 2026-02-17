@@ -24,6 +24,11 @@ void	Response::setBody(const std::string& content)
 	setHeader("Content-Length", oss.str());
 }
 
+int	Response::getStatusCode() const
+{
+	return (status_code);
+}
+
 std::string	Response::toString() const
 {
 	std::ostringstream	response;

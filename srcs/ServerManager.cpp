@@ -754,27 +754,60 @@ void	ServerManager::finishCGI(int client_fd, bool success)
 
 	if (!state.cgi_in_progress)
 		return ;
+
+	// Reap child process and check exit status
+	bool	cgi_failed = false;
 	if (state.cgi_pid > 0)
 	{
-		int		child_status;
-		pid_t	result = waitpid(state.cgi_pid, &child_status, WNOHANG);
-		if (result == 0)
+		// If we already know CGI failed (timeout, pipe error), kill child first
+		if (!success)
 		{
 			kill(state.cgi_pid, SIGKILL);
-			waitpid(state.cgi_pid, &child_status, 0);
+			cgi_failed = true;
+		}
+		int		child_status;
+		pid_t	result = waitpid(state.cgi_pid, &child_status, 0);
+		if (result < 0)
+		{
+			cgi_failed = true;
+		}
+		else if (WIFSIGNALED(child_status))
+		{
+			// Killed by signal (crash: SIGSEGV, SIGFPE, SIGABRT, etc.)
+			cgi_failed = true;
+		}
+		else if (WIFEXITED(child_status))
+		{
+			int	exit_code = WEXITSTATUS(child_status);
+			if (exit_code != 0)
+				cgi_failed = true;
 		}
 	}
+	else
+		cgi_failed = true;
+
+	// Also fail if success flag was false (timeout, pipe error, etc.)
+	if (!success)
+		cgi_failed = true;
 
 	// Build response
 	Response	response;
 
-	if (success && state.cgi_handler && !state.cgi_output.empty())
+	if (!cgi_failed && state.cgi_handler && !state.cgi_output.empty())
+	{
 		response = state.cgi_handler->buildResponseFromOutput(state.cgi_output);
+		// Verify parsed response is valid (buildResponseFromOutput may return 500)
+		if (response.getStatusCode() == 500)
+			cgi_failed = true;
+	}
 	else
+		cgi_failed = true;
+
+	if (cgi_failed)
 	{
 		response.setStatus(500, "Internal Server Error");
 		response.setHeader("Content-Type", "text/html");
-		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI execution failed</p></body></html>");
+		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI script failed</p></body></html>");
 	}
 
 	// Set Connection header based on keep-alive decision
