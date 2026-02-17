@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <errno.h>
+#include <sstream>
 
 ServerManager::ServerManager() {}
 
@@ -265,6 +266,21 @@ void	ServerManager::handleClientRequest(int client_fd)
 	{
 		if (!req.parseHeaders())
 			return;	// Headers not complete yet, wait for more data
+
+		// Check for malformed request (bad request line)
+		if (req.hasParseError())
+		{
+			state.keep_alive = false;
+			Response	res;
+			res.setStatus(req.getErrorCode(), "Bad Request");
+			res.setHeader("Content-Type", "text/html");
+			res.setHeader("Connection", "close");
+			std::ostringstream	body;
+			body << "<html><body><h1>" << req.getErrorCode() << " Bad Request</h1></body></html>";
+			res.setBody(body.str());
+			queueResponse(client_fd, res.toString());
+			return ;
+		}
 
 		// Check body size limit early
 		Server*	server = servers[state.server_index];

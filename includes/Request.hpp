@@ -33,6 +33,8 @@ class	Request
 		bool								body_complete;		// Is the full body received?
 		size_t								content_length;		// Expected body size
 		bool								is_chunked;			// Is Transfer-Encoding: chunked?
+		bool								parse_error;		// Was there a parse error?
+		int									error_code;			// HTTP error code if parse_error is true
 
 		// Multipart data
 		std::vector<MultipartPart>			multipart_parts;
@@ -45,6 +47,7 @@ class	Request
 		std::string	extractUnquotedValue(const std::string& str, const std::string& key) const;
 		bool		findBoundaryPosition(const std::string& data, const std::string& boundary, size_t start, size_t& pos) const;
 		std::string	unchunkBody(const std::string& chunked_body) const;
+		bool		validateRequestLine();
 	public:
 		Request();
 
@@ -55,6 +58,8 @@ class	Request
 		bool								parseHeaders();
 		bool								isHeadersComplete() const { return headers_complete; }
 		bool								isComplete() const { return headers_complete && body_complete; }
+		bool								hasParseError() const { return parse_error; }
+		int									getErrorCode() const { return error_code; }
 		
 		// Legacy single-call parse
 		void								parse(const std::string& raw_request);

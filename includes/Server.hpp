@@ -41,11 +41,13 @@ class	Server
 		Response				serveErrorPage(int code, const std::string& message);
 		Response				serveRedirect(int code, const std::string& url);
 		Response				serve200(const std::string& message);
+		Response				serve400();
 		Response				serve403();
 		Response				serve404();
 		Response				serve405();
 		Response				serve413();
 		Response				serve500();
+		Response				serve501();
 		Response				serve201(const std::string& message);
 		
 		// POST handling

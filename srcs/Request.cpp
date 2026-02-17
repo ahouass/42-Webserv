@@ -16,7 +16,7 @@ static inline bool	is_base64(unsigned char c)
 	return (isalnum(c) || (c == '+') || (c == '/'));
 }
 
-Request::Request() : headers_complete(false), body_complete(false), content_length(0), is_chunked(false), multipart_parsed(false) {}
+Request::Request() : headers_complete(false), body_complete(false), content_length(0), is_chunked(false), parse_error(false), error_code(0), multipart_parsed(false) {}
 
 void Request::reset()
 {
@@ -30,6 +30,8 @@ void Request::reset()
 	body_complete = false;
 	content_length = 0;
 	is_chunked = false;
+	parse_error = false;
+	error_code = 0;
 	multipart_parts.clear();
 	multipart_parsed = false;
 }
@@ -209,6 +211,62 @@ std::string	Request::unchunkBody(const std::string& chunked_body) const
 	return (result);
 }
 
+// Validate request line format: METHOD SP URI SP HTTP/VERSION
+// Returns true if valid, false if malformed (sets parse_error and error_code)
+bool	Request::validateRequestLine()
+{
+	// All three components must be present
+	if (method.empty() || path.empty() || version.empty())
+	{
+		parse_error = true;
+		error_code = 400;
+		return (false);
+	}
+
+	// Method must be alphabetic uppercase (RFC 7230)
+	for (size_t i = 0; i < method.length(); i++)
+	{
+		if (method[i] < 'A' || method[i] > 'Z')
+		{
+			parse_error = true;
+			error_code = 400;
+			return (false);
+		}
+	}
+
+	// Path must start with '/' or be '*'
+	if (path[0] != '/' && path != "*")
+	{
+		parse_error = true;
+		error_code = 400;
+		return (false);
+	}
+
+	// Version must match HTTP/x.x pattern
+	if (version.length() < 6 || version.substr(0, 5) != "HTTP/")
+	{
+		parse_error = true;
+		error_code = 400;
+		return (false);
+	}
+
+	std::string	ver_num = version.substr(5);
+	if (ver_num.length() < 3 || ver_num[1] != '.')
+	{
+		parse_error = true;
+		error_code = 400;
+		return (false);
+	}
+	if (ver_num[0] < '0' || ver_num[0] > '9' || ver_num[2] < '0' || ver_num[2] > '9')
+	{
+		parse_error = true;
+		error_code = 400;
+		return (false);
+	}
+
+	return (true);
+}
+
 void	Request::appendData(const std::string& data)
 {
 	raw_data += data;
@@ -272,6 +330,14 @@ bool	Request::parseHeaders()
 
 		std::istringstream	request_line(line);
 		request_line >> method >> path >> version;
+	}
+
+	// Validate request line
+	if (!validateRequestLine())
+	{
+		headers_complete = true;
+		body_complete = true;
+		return (true);
 	}
 
 	// Parse headers
