@@ -4,24 +4,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
-#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <sys/stat.h>
 #include <dirent.h>
-#include <errno.h>
 #include <ctime>
 #include <cstdlib>
 #include <cstdio>
 #include <fcntl.h>
-
-Server::Server() : server_fd(-1)
-{
-	// Default config
-	config.port = 8080;
-	config.root = "./www";
-	config.index = "index.html";
-}
 
 Server::Server(const ServerConfig& cfg) : server_fd(-1), config(cfg) {}
 
@@ -296,11 +286,6 @@ Response	Server::serveErrorPage(int code, const std::string& message)
 Response	Server::serve404()
 {
 	return (serveErrorPage(404, "Not Found"));
-}
-
-Response	Server::serve400()
-{
-	return (serveErrorPage(400, "Bad Request"));
 }
 
 Response	Server::serve403()

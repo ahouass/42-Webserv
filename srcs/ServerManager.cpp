@@ -6,9 +6,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <signal.h>
-#include <cstring>
 #include <fcntl.h>
-#include <errno.h>
 #include <sstream>
 
 ServerManager::ServerManager() {}
@@ -408,43 +406,26 @@ void	ServerManager::handleClientWrite(int client_fd)
 	// Calculate remaining data to send
 	size_t	remaining = state.response_buffer.length() - state.bytes_sent;
 
-	if (remaining == 0)
+	if (remaining > 0)
 	{
-		// All data sent
-		if (!state.keep_alive)
+		// ONE write per POLLOUT event (poll() indicated readiness)
+		const char*	data = state.response_buffer.c_str() + state.bytes_sent;
+		ssize_t		bytes_written = write(client_fd, data, remaining);
+
+		// > 0: update bytes_sent, == 0: close, < 0: close (do NOT check errno)
+		if (bytes_written <= 0)
 		{
 			closeClient(client_fd);
 			return ;
 		}
-		// Reset for next request (keep-alive)
-		state.request.reset();
-		state.response_buffer.clear();
-		state.bytes_sent = 0;
-		state.response_ready = false;
-		state.last_activity = time(NULL);
-		// Disable POLLOUT until next response is ready
-		updatePollEvents(client_fd, POLLIN);
-		return ;
-	}
-	
-	// ONE write per POLLOUT event (poll() indicated readiness)
-	const char*	data = state.response_buffer.c_str() + state.bytes_sent;
-	ssize_t		bytes_written = write(client_fd, data, remaining);
 
-	// > 0: update bytes_sent, == 0: close, < 0: close (do NOT check errno)
-	if (bytes_written <= 0)
-	{
-		closeClient(client_fd);
-		return ;
+		// Update bytes sent
+		state.bytes_sent += bytes_written;
 	}
-
-	// Update bytes sent
-	state.bytes_sent += bytes_written;
 
 	// Check if we've sent everything
 	if (state.bytes_sent >= state.response_buffer.length())
 	{
-		// All data sent
 		if (!state.keep_alive)
 		{
 			closeClient(client_fd);

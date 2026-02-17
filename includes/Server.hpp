@@ -2,7 +2,6 @@
 #define SERVER_HPP
 
 #include <string>
-#include <vector>
 #include "Request.hpp"
 #include "Response.hpp"
 #include "Config.hpp"
@@ -41,7 +40,6 @@ class	Server
 		Response				serveErrorPage(int code, const std::string& message);
 		Response				serveRedirect(int code, const std::string& url);
 		Response				serve200(const std::string& message);
-		Response				serve400();
 		Response				serve403();
 		Response				serve404();
 		Response				serve405();
@@ -64,7 +62,6 @@ class	Server
 		std::string				getUploadPath(const LocationConfig* location) const;
 		std::string				generateFilename() const;
 	public:
-		Server();
 		Server(const ServerConfig& cfg);
 		~Server();
 		
