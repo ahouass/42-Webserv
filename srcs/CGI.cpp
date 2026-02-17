@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
-#include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -42,7 +41,6 @@ void	CGI::setupFromRequest(const Request& req, const std::string& script,
 	request_method = req.getMethod();
 	content_type = req.getHeader("Content-Type");
 	content_length = req.getContentLength();
-	request_body = req.getBody();
 	
 	// Parse URL to get script name and query string
 	std::string	url = req.getPath();
@@ -136,12 +134,6 @@ char**	CGI::buildEnvArray() const
 
 	port_ss << server_port;
 	env_vars.push_back("SERVER_PORT=" + port_ss.str());
-	
-	if (!remote_addr.empty())
-	{
-		env_vars.push_back("REMOTE_ADDR=" + remote_addr);
-		env_vars.push_back("REMOTE_HOST=" + remote_addr);
-	}
 	
 	// Content headers for POST
 	if (!content_type.empty())

@@ -2,7 +2,6 @@
 #include <sstream>
 #include <iostream>
 #include <cstdlib>
-#include <cstring>
 #include <algorithm>
 
 // Base64 decoding table
@@ -418,19 +417,6 @@ bool	Request::parseHeaders()
 	return (true);
 }
 
-void	Request::parse(const std::string& raw_request)
-{
-	reset();
-	appendData(raw_request);
-	parseHeaders();
-
-	// For backwards compatibility - mark as complete if we got here
-	if (headers_complete && content_length == 0)
-		body_complete = true;
-	else if (headers_complete && body.length() >= content_length)
-		body_complete = true;
-}
-
 std::string	Request::getHeader(const std::string& key) const
 {
 	std::map<std::string, std::string>::const_iterator	it = headers.find(key);
@@ -604,24 +590,16 @@ void	Request::parseContentDisposition(const std::string& header, std::string& na
 	filename = safe_filename;
 }
 
-void	Request::parseContentType(const std::string& header, std::string& mime_type, std::string& charset)
+void	Request::parseContentType(const std::string& header, std::string& mime_type)
 {
 	mime_type.clear();
-	charset.clear();
 	
 	std::string	trimmed = trim(header);
 	
 	// Extract mime type (before any semicolon)
 	size_t	semi = trimmed.find(';');
 	if (semi != std::string::npos)
-	{
 		mime_type = trim(trimmed.substr(0, semi));
-
-		// Look for charset parameter
-		charset = extractQuotedValue(trimmed, "charset");
-		if (charset.empty())
-			charset = extractUnquotedValue(trimmed, "charset");
-	}
 	else
 		mime_type = trimmed;
 }
@@ -729,9 +707,9 @@ bool	Request::parseMultipart()
 		parseContentDisposition(content_disposition, part.name, part.filename);
 		part.is_file = !part.filename.empty();
 
-		// Parse Content-Type for mime type and charset
+		// Parse Content-Type for mime type
 		if (!content_type_header.empty())
-			parseContentType(content_type_header, part.content_type, part.charset);
+			parseContentType(content_type_header, part.content_type);
 		else if (part.is_file)
 			part.content_type = "application/octet-stream";	// Default content type for files
 
@@ -759,7 +737,6 @@ bool	Request::parseMultipart()
 
 		// Extract raw content
 		part.data = body.substr(content_start, content_end - content_start);
-		part.data_size = part.data.length();
 
 		// Handle Content-Transfer-Encoding
 		std::string	encoding = part.content_transfer_encoding;
@@ -803,112 +780,4 @@ size_t	Request::getTotalUploadSize() const
 	return (total);
 }
 
-std::map<std::string, std::string>	Request::parseQueryString() const
-{
-	std::map<std::string, std::string>	params;
 
-	// Find query string in path
-	size_t	qmark = path.find('?');
-	if (qmark == std::string::npos)
-		return (params);
-	
-	std::string	query = path.substr(qmark + 1);
-	size_t		pos = 0;
-	
-	while (pos < query.length())
-	{
-		size_t		amp = query.find('&', pos);
-		std::string	pair;
-
-		if (amp == std::string::npos)
-		{
-			pair = query.substr(pos);
-			pos = query.length();
-		}
-		else
-		{
-			pair = query.substr(pos, amp - pos);
-			pos = amp + 1;
-		}
-		
-		size_t	eq = pair.find('=');
-
-		if (eq != std::string::npos)
-		{
-			std::string key = urlDecode(pair.substr(0, eq));
-			std::string value = urlDecode(pair.substr(eq + 1));
-			params[key] = value;
-		}
-		else if (!pair.empty())
-			params[urlDecode(pair)] = "";	// Key without value
-	}
-	return (params);
-}
-
-// Cookie support - parse Cookie header
-std::map<std::string, std::string>	Request::getCookies() const
-{
-	std::map<std::string, std::string>	cookies;
-	std::string							cookie_header = getHeader("Cookie");
-	
-	if (cookie_header.empty())
-		return (cookies);
-	
-	size_t	pos = 0;
-
-	while (pos < cookie_header.length())
-	{
-		// Skip whitespace
-		while (pos < cookie_header.length() && (cookie_header[pos] == ' ' || cookie_header[pos] == '\t'))
-			pos++;
-
-		// Find the next semicolon or end
-		size_t		end = cookie_header.find(';', pos);
-		std::string	pair;
-
-		if (end == std::string::npos)
-		{
-			pair = cookie_header.substr(pos);
-			pos = cookie_header.length();
-		}
-		else
-		{
-			pair = cookie_header.substr(pos, end - pos);
-			pos = end + 1;
-		}
-
-		// Parse name=value
-		size_t	eq = pair.find('=');
-
-		if (eq != std::string::npos)
-		{
-			std::string	name = pair.substr(0, eq);
-			std::string	value = pair.substr(eq + 1);
-			
-			// Trim whitespace from name
-			size_t		start = name.find_first_not_of(" \t");
-			size_t		finish = name.find_last_not_of(" \t");
-
-			if (start != std::string::npos)
-				name = name.substr(start, finish - start + 1);
-
-			// Trim whitespace and quotes from value
-			start = value.find_first_not_of(" \t\"");
-			finish = value.find_last_not_of(" \t\"");
-			if (start != std::string::npos)
-				value = value.substr(start, finish - start + 1);
-			cookies[name] = value;
-		}
-	}
-	return (cookies);
-}
-
-std::string	Request::getCookie(const std::string& name) const
-{
-	std::map<std::string, std::string>					cookies = getCookies();
-	std::map<std::string, std::string>::const_iterator	it = cookies.find(name);
-
-	if (it != cookies.end())
-		return (it->second);
-	return ("");
-}
