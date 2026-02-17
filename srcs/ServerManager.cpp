@@ -272,11 +272,17 @@ void	ServerManager::handleClientRequest(int client_fd)
 		{
 			state.keep_alive = false;
 			Response	res;
-			res.setStatus(req.getErrorCode(), "Bad Request");
+			int ec = req.getErrorCode();
+			std::string status_text;
+			if (ec == 505)
+				status_text = "HTTP Version Not Supported";
+			else
+				status_text = "Bad Request";
+			res.setStatus(ec, status_text);
 			res.setHeader("Content-Type", "text/html");
 			res.setHeader("Connection", "close");
 			std::ostringstream	body;
-			body << "<html><body><h1>" << req.getErrorCode() << " Bad Request</h1></body></html>";
+			body << "<html><body><h1>" << ec << " " << status_text << "</h1></body></html>";
 			res.setBody(body.str());
 			queueResponse(client_fd, res.toString());
 			return ;

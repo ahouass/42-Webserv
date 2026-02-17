@@ -264,6 +264,14 @@ bool	Request::validateRequestLine()
 		return (false);
 	}
 
+	// Only HTTP/1.0 and HTTP/1.1 are supported (RFC 7230)
+	if (version != "HTTP/1.0" && version != "HTTP/1.1")
+	{
+		parse_error = true;
+		error_code = 505;
+		return (false);
+	}
+
 	return (true);
 }
 
@@ -368,6 +376,16 @@ bool	Request::parseHeaders()
 	std::string	cl = getHeader("Content-Length");
 	if (!cl.empty())
 		content_length = std::atol(cl.c_str());
+
+	// HTTP/1.1 requires Host header (RFC 7230 Section 5.4)
+	if (version == "HTTP/1.1" && getHeader("Host").empty())
+	{
+		parse_error = true;
+		error_code = 400;
+		headers_complete = true;
+		body_complete = true;
+		return (true);
+	}
 
 	// Check for chunked transfer encoding
 	std::string te = getHeader("Transfer-Encoding");
