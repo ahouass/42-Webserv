@@ -85,7 +85,6 @@ bool	Config::parse(const std::string& filename)
 	std::string		line;
 	ServerConfig*	current_server = NULL;
 	LocationConfig*	current_location = NULL;
-	int				brace_level = 0;
 	bool			in_server = false;
 	bool			in_location = false;
 	
@@ -110,7 +109,6 @@ bool	Config::parse(const std::string& filename)
 		// Handle braces
 		if (line.find('{') != std::string::npos)
 		{
-			brace_level++;
 			if (line.find("server") == 0)
 			{
 				servers.push_back(ServerConfig());
@@ -133,7 +131,6 @@ bool	Config::parse(const std::string& filename)
 		}
 		if (line.find('}') != std::string::npos)
 		{
-			brace_level--;
 			if (in_location)
 			{
 				in_location = false;

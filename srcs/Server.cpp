@@ -544,8 +544,6 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 
 	int							files_saved = 0;
 	std::vector<std::string>	saved_files;
-	std::vector<size_t>			file_sizes;
-	std::vector<std::string>	file_types;
 	
 	for (size_t i = 0; i < parts.size(); i++)
 	{
@@ -587,8 +585,6 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 			std::string	saved_name = (last_slash != std::string::npos) ? file_path.substr(last_slash + 1) : file_path;
 
 			saved_files.push_back(saved_name);
-			file_sizes.push_back(part.data.length());
-			file_types.push_back(part.content_type);
 		}
 		else
 			return (serve500());
