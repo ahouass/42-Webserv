@@ -631,22 +631,26 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 		return (res);
 	}
 
-	// Build success response with detailed file information
-	std::ostringstream	json;
-
-	json << "{\"status\":\"success\",\"message\":\"" << files_saved << " file(s) uploaded\",\"files\":[";
-	for (size_t i = 0; i < saved_files.size(); i++)
-	{
-		if (i > 0)
-			json << ",";
-		json << "{\"name\":\"" << saved_files[i] << "\"" << ",\"size\":" << file_sizes[i] << ",\"type\":\"" << file_types[i] << "\"}";
-	}
-	json << "],\"total_size\":" << req.getTotalUploadSize() << "}";
-
+	// Return 201 Created with Location header (nginx-like behavior)
 	Response	res;
 	res.setStatus(201, "Created");
-	res.setHeader("Content-Type", "application/json");
-	res.setBody(json.str());
+	res.setHeader("Content-Length", "0");
+
+	// Build Location header from the first uploaded file
+	std::string	location_path;
+	if (location && !location->upload_store.empty())
+	{
+		// Derive URI path from upload_store relative to server root
+		std::string	store = location->upload_store;
+		if (store.find(config.root) == 0)
+			location_path = store.substr(config.root.length());
+		else
+			location_path = "/uploads";
+	}
+	else
+		location_path = "/uploads";
+	if (!saved_files.empty())
+		res.setHeader("Location", location_path + "/" + saved_files[0]);
 	return (res);
 }
 
@@ -692,7 +696,25 @@ Response	Server::handleRawUpload(const Request& req, const LocationConfig* locat
 
 	if (!writeFile(file_path, body))
 		return (serve500());
-	return (serve201("File uploaded as " + filename));
+
+	// Return 201 Created with Location header (nginx-like behavior)
+	Response	res;
+	res.setStatus(201, "Created");
+	res.setHeader("Content-Length", "0");
+
+	std::string	location_path;
+	if (location && !location->upload_store.empty())
+	{
+		std::string	store = location->upload_store;
+		if (store.find(config.root) == 0)
+			location_path = store.substr(config.root.length());
+		else
+			location_path = "/uploads";
+	}
+	else
+		location_path = "/uploads";
+	res.setHeader("Location", location_path + "/" + filename);
+	return (res);
 }
 
 bool	Server::deleteFile(const std::string& path)
@@ -750,6 +772,9 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 	if (!deleteFile(file_path))
 		return (serve500());
 
-	// Return 200 with message
-	return (serve200("File deleted successfully"));
+	// Return 204 No Content (nginx-like behavior)
+	Response	res;
+	res.setStatus(204, "No Content");
+	res.setHeader("Content-Length", "0");
+	return (res);
 }
