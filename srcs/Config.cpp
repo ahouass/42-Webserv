@@ -203,22 +203,11 @@ bool	Config::parse(const std::string& filename)
 				current_location->upload_store = tokens[1];
 			else if (directive == "cgi" && tokens.size() >= 3)
 				current_location->cgi_handlers[tokens[1]] = tokens[2];	// cgi .py /usr/bin/python3
-			else if (directive == "cgi_extension" && tokens.size() >= 2)
-				current_location->cgi_handlers[tokens[1]] = "";		// Legacy support: cgi_extension .py with cgi_path	// Store temporarily, will be paired with cgi_path
-			else if (directive == "cgi_path" && tokens.size() >= 2)
-			{
-				// Legacy support: set path for last empty-path extension
-				for (std::map<std::string, std::string>::iterator it = current_location->cgi_handlers.begin(); it != current_location->cgi_handlers.end(); ++it)
-				{
-					if (it->second.empty())
-						it->second = tokens[1];
-				}
-			}
 			else if (directive == "client_max_body_size" && tokens.size() >= 2)
 				current_location->client_max_body_size = parseSize(tokens[1]);
 			else if (directive == "return" && tokens.size() >= 3)
 			{
-				// return 301 http://example.com/new-url
+				// return 301
 				current_location->redirect_code = std::atoi(tokens[1].c_str());
 				current_location->redirect_url = tokens[2];
 			}
@@ -240,7 +229,6 @@ bool	Config::parse(const std::string& filename)
 bool	Config::validatePorts() const
 {
 	// Check for duplicate port + server_name combinations
-	// Same port is allowed only if server_names are different (virtual hosting)
 	for (size_t i = 0; i < servers.size(); i++)
 	{
 		for (size_t j = i + 1; j < servers.size(); j++)
