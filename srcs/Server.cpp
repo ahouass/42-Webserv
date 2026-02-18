@@ -171,10 +171,10 @@ Response	Server::serveFile(const std::string& path, const LocationConfig* locati
 	return (res);
 }
 
-Response	Server::serveDirectory(const std::string& path, const LocationConfig* location)
+Response	Server::serveDirectory(const std::string& fs_path, const std::string& uri_path, const LocationConfig* location)
 {
 	// Try to serve index file
-	std::string	index_path = path;
+	std::string	index_path = fs_path;
 
 	if (index_path[index_path.length() - 1] != '/')
 		index_path += "/";
@@ -191,18 +191,22 @@ Response	Server::serveDirectory(const std::string& path, const LocationConfig* l
 	// If autoindex is enabled, show directory listing
 	if (location && location->autoindex)
 	{
-		
 		Response	res;
 
 		res.setStatus(200, "OK");
 		res.setHeader("Content-Type", "text/html");
-		
+
+		// Build base URI for links
+		std::string	base = uri_path;
+		if (!base.empty() && base[base.size() - 1] != '/')
+			base += '/';
+
 		// Generate directory listing HTML
 		std::ostringstream	html;
 
 		html << "<!DOCTYPE html>\n";
 		html << "<html>\n<head>\n";
-		html << "<title>Index of " << path << "</title>\n";
+		html << "<title>Index of " << uri_path << "</title>\n";
 		html << "<style>\n";
 		html << "body { font-family: Arial, sans-serif; margin: 40px; }\n";
 		html << "h1 { color: #333; }\n";
@@ -212,11 +216,11 @@ Response	Server::serveDirectory(const std::string& path, const LocationConfig* l
 		html << "a:hover { text-decoration: underline; }\n";
 		html << "</style>\n";
 		html << "</head>\n<body>\n";
-		html << "<h1>Index of " << path << "</h1>\n";
+		html << "<h1>Index of " << uri_path << "</h1>\n";
 		html << "<ul>\n";
 
 		// Read directory contents
-		DIR*	dir = opendir(path.c_str());
+		DIR*	dir = opendir(fs_path.c_str());
 
 		if (dir)
 		{
@@ -229,10 +233,18 @@ Response	Server::serveDirectory(const std::string& path, const LocationConfig* l
 				// Skip . but show ..
 				if (name == ".")
 					continue ;
-				html << "<li><a href=\"" << name;
-				if (entry->d_type == DT_DIR)
-					html << "/";
-				html << "\">" << name;
+
+				std::string	href;
+				if (name == "..")
+					href = "../";
+				else
+				{
+					href = base + name;
+					if (entry->d_type == DT_DIR)
+						href += "/";
+				}
+
+				html << "<li><a href=\"" << href << "\">" << name;
 				if (entry->d_type == DT_DIR)
 					html << "/";
 				html << "</a></li>\n";
@@ -337,20 +349,6 @@ Response	Server::serveRedirect(int code, const std::string& url)
 	return (res);
 }
 
-Response	Server::serve200(const std::string& message)
-{
-	Response	res;
-
-	res.setStatus(200, "OK");
-	res.setHeader("Content-Type", "application/json");
-
-	std::ostringstream	json;
-
-	json << "{\"status\":\"success\",\"message\":\"" << message << "\"}";
-	res.setBody(json.str());
-	return (res);
-}
-
 std::string	Server::readFile(const std::string& path)
 {
 	std::ifstream	file(path.c_str(), std::ios::binary);
@@ -397,19 +395,6 @@ Response	Server::serve413()
 	return (serveErrorPage(413, "Payload Too Large"));
 }
 
-Response	Server::serve201(const std::string& message)
-{
-	Response	res;
-
-	res.setStatus(201, "Created");
-	res.setHeader("Content-Type", "application/json");
-
-	std::ostringstream	json;
-	json << "{\"status\":\"success\",\"message\":\"" << message << "\"}";
-	res.setBody(json.str());
-	return (res);
-}
-
 std::string	Server::getUploadPath(const LocationConfig* location) const
 {
 	if (location && !location->upload_store.empty())
@@ -450,24 +435,6 @@ bool	Server::isCGIRequest(const Request& req, CGIInfo& info)
 			info.cgi_extension = it->first;
 			info.interpreter = it->second;
 			info.location = location;
-
-			// Get the correct document root
-			std::string	doc_root = config.root;
-			std::string	url_path = req.getPath();
-
-			// If location has a custom root, use it and adjust the path
-			if (!location->root.empty())
-			{
-				doc_root = location->root;
-				if (url_path.find(location->path) == 0)
-				{
-					url_path = url_path.substr(location->path.length());
-					if (url_path.empty() || url_path[0] != '/')
-						url_path = "/" + url_path;
-				}
-			}
-			info.doc_root = doc_root;
-			info.script_path = CGI::getScriptPath(url_path, doc_root, it->first);
 			return (true);
 		}
 	}
@@ -520,7 +487,12 @@ Response	Server::handleNonCGIRequest(const Request& req)
 	
 	// Check if it's a directory
 	if (isDirectory(file_path))
-		return (serveDirectory(file_path, location));
+	{
+		std::string uri = req.getPath();
+		if (!uri.empty() && uri[uri.size() - 1] != '/')
+			return (serveRedirect(301, uri + "/"));
+		return (serveDirectory(file_path, req.getPath(), location));
+	}
 
 	// It's a file, serve it
 	return (serveFile(file_path, location));
