@@ -625,17 +625,6 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 Response	Server::handleRawUpload(const Request& req, const LocationConfig* location)
 {
 	std::string	body = req.getBody();
-
-	if (body.empty())
-	{
-		Response	res;
-
-		res.setStatus(400, "Bad Request");
-		res.setHeader("Content-Type", "application/json");
-		res.setBody("{\"status\":\"error\",\"message\":\"Empty request body\"}");
-		return (res);
-	}
-	
 	std::string	upload_dir = getUploadPath(location);
 
 	mkdir(upload_dir.c_str(), 0755);

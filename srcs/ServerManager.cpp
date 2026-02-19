@@ -16,10 +16,10 @@ ServerManager::~ServerManager()
 	stop();
 }
 
-bool    ServerManager::initServers(const std::vector<ServerConfig>& configs)
+bool	ServerManager::initServers(const std::vector<ServerConfig>& configs)
 {
 	// Track which ports have been bound (for virtual hosting support)
-	std::map<int, int>  port_to_server_index;
+	std::map<int, int>	port_to_server_index;
 	
 	// Create and start each server
 	for (size_t i = 0; i < configs.size(); i++)
@@ -519,7 +519,13 @@ void	ServerManager::stop()
 {
 	// Close all client connections
 	for (size_t i = 0; i < poll_fds.size(); i++)
-		close(poll_fds[i].fd);
+	{
+		int fd = poll_fds[i].fd;
+
+		// Only close client sockets, NOT server sockets
+		if (server_fds.find(fd) == server_fds.end())
+			close(fd);
+	}
 	poll_fds.clear();
 	fd_to_server.clear();
 	client_states.clear();
