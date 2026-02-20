@@ -36,7 +36,7 @@ class	CGI
 		char**		buildEnvArray() const;
 		void		freeEnvArray(char** env) const;
 		std::string	extractPathInfo(const std::string& url, const std::string& script) const;
-		bool				parseOutputString(const std::string& output, Response& response) const;
+		bool		parseOutputString(const std::string& output, Response& response) const;
 	public:
 		CGI();
 		~CGI();
