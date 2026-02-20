@@ -10,9 +10,9 @@ OBJDIR		= objs
 FILES		= CGI Config Request Response Server ServerManager main
 HEADERS		= CGI Config Request Response Server ServerManager
 
+INCS 		= $(addprefix $(INCDIR)/, $(addsuffix .hpp, $(HEADERS)))
 SRCS		= $(addprefix $(SRCDIR)/, $(addsuffix .cpp, $(FILES)))
 OBJS		= $(addprefix $(OBJDIR)/, $(addsuffix .o, $(FILES)))
-INCS 		= $(addprefix $(INCDIR)/, $(addsuffix .hpp, $(HEADERS)))
 
 all: $(NAME)
 
