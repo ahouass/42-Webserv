@@ -242,7 +242,7 @@ Correct website returned.
 Upload file:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/upload -d "test upload"
+curl -X POST http://127.0.0.1:8080/uploads/ -d "test upload"
 ```
 
 Verify file exists:
@@ -254,6 +254,11 @@ ls uploads/
 Upload MultiPart files
 ```bash
 curl -v -F "file1=@hello.txt" -F "file2=@empty.txt" http://localhost:8080/uploads/
+```
+
+See the MultiPart request
+```bash
+curl --trace-ascii - -F "file1=@hello.txt" -F "file2=@empty.txt" http://localhost:8080/uploads/
 ```
 
 Download file:

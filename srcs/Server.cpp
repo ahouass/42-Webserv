@@ -82,13 +82,11 @@ const LocationConfig*	Server::findLocation(const std::string& path) const
 {
 	const LocationConfig*	best_match = NULL;
 	size_t					best_match_len = 0;
-	
-	// Find the longest matching location path
+
 	for (size_t i = 0; i < config.locations.size(); i++)
 	{
 		const LocationConfig&	loc = config.locations[i];
 
-		// Check if path starts with location path
 		if (path.find(loc.path) == 0)
 		{
 			size_t	loc_len = loc.path.length();
@@ -105,15 +103,10 @@ const LocationConfig*	Server::findLocation(const std::string& path) const
 
 bool	Server::isMethodAllowed(const std::string& method, const LocationConfig* location) const
 {
-	// If no location specified, allow GET by default
 	if (!location)
 		return (method == "GET");
-	
-	// If location has no methods specified, allow all
 	if (location->methods.empty())
 		return (true);
-	
-	// Check if method is in the allowed list
 	for (size_t i = 0; i < location->methods.size(); i++)
 	{
 		if (location->methods[i] == method)
@@ -327,12 +320,12 @@ Response	Server::serveRedirect(int code, const std::string& url)
 
 	switch (code)
 	{
-		case 301: message = "Moved Permanently"; break;
-		case 302: message = "Found"; break;
-		case 303: message = "See Other"; break;
-		case 307: message = "Temporary Redirect"; break;
-		case 308: message = "Permanent Redirect"; break;
-		default: message = "Redirect"; break;
+		case 301: message = "Moved Permanently"; break ;
+		case 302: message = "Found"; break ;
+		case 303: message = "See Other"; break ;
+		case 307: message = "Temporary Redirect"; break ;
+		case 308: message = "Permanent Redirect"; break ;
+		default: message = "Redirect"; break ;
 	}
 	res.setStatus(code, message);
 	res.setHeader("Location", url);
@@ -412,26 +405,19 @@ std::string	Server::generateFilename() const
 
 bool	Server::isCGIRequest(const Request& req, CGIInfo& info)
 {
-	// Find matching location
 	const LocationConfig*	location = findLocation(req.getPath());
 
-	// Check for CGI handlers
 	if (!location || location->cgi_handlers.empty())
 		return (false);
-	
-	// Extract file extension from path
+
 	std::string	path = req.getPath();
 	size_t		query_pos = path.find('?');
-
 	if (query_pos != std::string::npos)
 		path = path.substr(0, query_pos);
-
-	// Check each registered CGI extension
 	for (std::map<std::string, std::string>::const_iterator it = location->cgi_handlers.begin(); it != location->cgi_handlers.end(); ++it)
 	{
 		if (CGI::isCGIRequest(path, it->first))
 		{
-			// Populate CGI info
 			info.cgi_extension = it->first;
 			info.interpreter = it->second;
 			info.location = location;
@@ -443,23 +429,16 @@ bool	Server::isCGIRequest(const Request& req, CGIInfo& info)
 
 Response	Server::handleNonCGIRequest(const Request& req)
 {
-	// Find matching location
 	const LocationConfig*	location = findLocation(req.getPath());
 
-	// Check for HTTP redirection first
 	if (location && location->redirect_code > 0 && !location->redirect_url.empty())
 		return (serveRedirect(location->redirect_code, location->redirect_url));
 
-	// Check if method is a known/supported HTTP method
 	std::string	m = req.getMethod();
 	if (m != "GET" && m != "POST" && m != "DELETE")
 		return (serve501());
-
-	// Check if method is allowed for this route
 	if (!isMethodAllowed(req.getMethod(), location))
 		return (serve405());
-	
-	// Check body size limits for POST
 	if (req.getMethod() == "POST")
 	{
 		size_t	max_size = config.client_max_body_size;
@@ -469,12 +448,8 @@ Response	Server::handleNonCGIRequest(const Request& req)
 		if (req.getContentLength() > max_size)
 			return (serve413());
 	}
-
-	// Handle POST requests (non-CGI)
 	if (req.getMethod() == "POST")
 		return (handlePost(req, location));
-
-	// Handle DELETE requests
 	if (req.getMethod() == "DELETE")
 		return (handleDelete(req, location));
 
@@ -500,17 +475,13 @@ Response	Server::handleNonCGIRequest(const Request& req)
 
 Response	Server::handlePost(const Request& req, const LocationConfig* location)
 {
-	// Check if this is a multipart upload
 	if (req.isMultipart())
 		return (handleMultipartUpload(req, location));
-
-	// Handle raw POST data (application/x-www-form-urlencoded or raw file)
 	return (handleRawUpload(req, location));
 }
 
 Response	Server::handleMultipartUpload(const Request& req, const LocationConfig* location)
 {
-	// Parse multipart data
 	Request&	mutable_req = const_cast<Request&>(req);
 
 	if (!mutable_req.parseMultipart())

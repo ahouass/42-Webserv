@@ -204,11 +204,8 @@ std::string	Request::unchunkBody(const std::string& chunked_body) const
 	return (result);
 }
 
-// Validate request line format: METHOD SP URI SP HTTP/VERSION
-// Returns true if valid, false if malformed (sets parse_error and error_code)
 bool	Request::validateRequestLine()
 {
-	// All three components must be present
 	if (method.empty() || path.empty() || version.empty())
 	{
 		parse_error = true;
@@ -281,10 +278,8 @@ void	Request::appendData(const std::string& data)
 		{
 			std::string	raw_body = raw_data.substr(header_end + 4);
 
-			// Check if body is now complete
 			if (is_chunked)
 			{
-				// For chunked encoding, look for terminating 0\r\n\r\n
 				if (raw_body.find("0\r\n\r\n") != std::string::npos)
 				{
 					body = unchunkBody(raw_body);
@@ -295,8 +290,6 @@ void	Request::appendData(const std::string& data)
 			{
 				body_complete = true;
 				body = raw_body;
-
-				// Trim body to content_length
 				if (content_length > 0 && body.length() > content_length)
 					body = body.substr(0, content_length);
 			}
@@ -311,13 +304,10 @@ bool	Request::parseHeaders()
 	if (headers_complete)
 		return (true);
 
-	// Look for end of headers (\r\n\r\n)
 	size_t	header_end = raw_data.find("\r\n\r\n");
-
 	if (header_end == std::string::npos)
-		return (false);  // Headers not complete yet
+		return (false);
 
-	// Parse the headers
 	std::string			header_section = raw_data.substr(0, header_end);
 	std::istringstream	stream(header_section);
 	std::string			line;
@@ -325,7 +315,6 @@ bool	Request::parseHeaders()
 	// Parse request line: GET /index.html HTTP/1.1
 	if (std::getline(stream, line))
 	{
-		// Remove \r if present
 		if (!line.empty() && line[line.length()-1] == '\r')
 			line.erase(line.length()-1);
 
@@ -344,28 +333,23 @@ bool	Request::parseHeaders()
 	// Parse headers
 	while (std::getline(stream, line))
 	{
-		// Remove \r if present
 		if (!line.empty() && line[line.length()-1] == '\r')
 			line.erase(line.length()-1);
-		
 		if (line.empty())
 			break ;
-		
-		size_t	colon = line.find(':');
 
+		size_t	colon = line.find(':');
 		if (colon != std::string::npos)
 		{
 			std::string	key = line.substr(0, colon);
 			std::string	value = line.substr(colon + 1);
 
-			// Trim leading space from value
 			while (!value.empty() && value[0] == ' ')
 				value.erase(0, 1);
 			headers[key] = value;
 		}
 	}
 
-	// Get Content-Length if present
 	std::string	cl = getHeader("Content-Length");
 	if (!cl.empty())
 		content_length = std::atol(cl.c_str());
@@ -384,7 +368,6 @@ bool	Request::parseHeaders()
 	std::string te = getHeader("Transfer-Encoding");
 	if (te.find("chunked") != std::string::npos)
 		is_chunked = true;
-	
 	headers_complete = true;
 	
 	// Extract body (everything after \r\n\r\n)
@@ -396,7 +379,6 @@ bool	Request::parseHeaders()
 		// For chunked encoding, check for terminating chunk (0\r\n\r\n)
 		if (body.find("0\r\n\r\n") != std::string::npos)
 		{
-			// Unchunk the body
 			body = unchunkBody(body);
 			body_complete = true;
 		}
@@ -404,7 +386,6 @@ bool	Request::parseHeaders()
 	else if (content_length == 0 || body.length() >= content_length)
 	{
 		body_complete = true;
-		// Trim body to content_length
 		if (content_length > 0 && body.length() > content_length)
 			body = body.substr(0, content_length);
 	}
@@ -611,13 +592,12 @@ bool	Request::findBoundaryPosition(const std::string& data, const std::string& b
 bool	Request::parseMultipart()
 {
 	if (multipart_parsed)
-		return !multipart_parts.empty();
+		return (!multipart_parts.empty());
 	multipart_parsed = true;
 	if (!isMultipart())
 		return (false);
 	
 	std::string	boundary = getBoundary();
-
 	if (boundary.empty())
 	{
 		std::cerr << "No boundary found in multipart request" << std::endl;
@@ -761,5 +741,3 @@ bool	Request::parseMultipart()
 	}
 	return (!multipart_parts.empty());
 }
-
-

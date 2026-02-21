@@ -20,8 +20,7 @@ bool	ServerManager::initServers(const std::vector<ServerConfig>& configs)
 {
 	// Track which ports have been bound (for virtual hosting support)
 	std::map<int, int>	port_to_server_index;
-	
-	// Create and start each server
+
 	for (size_t i = 0; i < configs.size(); i++)
 	{
 		int	port = configs[i].port;
@@ -64,9 +63,7 @@ void	ServerManager::run()
 
 	while (true)
 	{
-		// Wait for activity on any socket (with 1 second timeout for checking idle connections)
 		int	activity = poll(&poll_fds[0], poll_fds.size(), 1000);
-
 		if (activity < 0)
 		{
 			std::cerr << "poll() error" << std::endl;
@@ -329,15 +326,11 @@ void	ServerManager::handleClientRequest(int client_fd)
 	Server*	server = servers[server_index];
 	std::cout << "[" << server->getConfig().server_name << ":" << server->getPort() << "] " << req.getMethod() << " " << req.getPath() << std::endl;
 
-	// Check if this is a CGI request
 	CGIInfo	cgi_info;
-
 	if (server->isCGIRequest(req, cgi_info))
 	{
-		// Start CGI execution
 		if (!startCGI(client_fd, req, server, cgi_info.location, cgi_info.cgi_extension, cgi_info.interpreter))
 		{
-			// CGI failed to start, send error response
 			Response	res;
 			res.setStatus(500, "Internal Server Error");
 			res.setHeader("Content-Type", "text/html");
@@ -347,16 +340,11 @@ void	ServerManager::handleClientRequest(int client_fd)
 		return ;
 	}
 
-	// Non-CGI request: get the response from server
 	Response	response = server->handleNonCGIRequest(req);
-	
-	// Set Connection header based on keep-alive decision
 	if (state.keep_alive)
 		response.setHeader("Connection", "keep-alive");
 	else
 		response.setHeader("Connection", "close");
-
-	// Queue the response to be sent when POLLOUT is ready
 	queueResponse(client_fd, response.toString());
 }
 
@@ -366,7 +354,6 @@ void	ServerManager::queueResponse(int client_fd, const std::string& response)
 
 	if (it == client_states.end())
 		return ;
-
 	it->second.response_buffer = response;
 	it->second.bytes_sent = 0;
 	it->second.response_ready = true;
@@ -524,7 +511,6 @@ void	ServerManager::stop()
 	servers.clear();
 }
 
-// Extract hostname from Host header (removes port if present)
 std::string	ServerManager::extractHostname(const std::string& host) const
 {
 	size_t	colon_pos = host.find(':');
@@ -534,8 +520,6 @@ std::string	ServerManager::extractHostname(const std::string& host) const
 	return (host);
 }
 
-// Find the best matching server based on Host header and port
-// Returns server index, or -1 if no match (should use default)
 int	ServerManager::findServerByHost(const std::string& host, int port) const
 {
 	std::string	hostname = extractHostname(host);
@@ -545,23 +529,17 @@ int	ServerManager::findServerByHost(const std::string& host, int port) const
 	{
 		const ServerConfig&	config = servers[i]->getConfig();
 
-		// Check if this server listens on the same port
 		if (config.port == port)
 		{
-			// Remember first server on this port as fallback
 			if (first_match_on_port == -1)
 				first_match_on_port = i;
-
-			// Check if server_name matches
 			if (config.server_name == hostname)
 				return (i);
 		}
 	}
-	// No exact match, use first server on this port as default
 	return (first_match_on_port);
 }
 
-// Start async CGI execution - returns true if CGI started successfully
 bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, const LocationConfig* location, const std::string& extension, const std::string& interpreter)
 {
 	std::map<int, ClientState>::iterator	it = client_states.find(client_fd);
@@ -570,11 +548,8 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 		return (false);
 
 	ClientState&	state = it->second;
-
-	// Get document root and script path
-	std::string	doc_root = server->getConfig().root;
-	std::string	url_path = req.getPath();
-	
+	std::string		doc_root = server->getConfig().root;
+	std::string		url_path = req.getPath();
 	if (location && !location->root.empty())
 	{
 		doc_root = location->root;
@@ -587,30 +562,22 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 	}
 
 	std::string	script_path = CGI::getScriptPath(url_path, doc_root, extension);
-
-	// Check if script exists
 	struct stat	st;
 	if (stat(script_path.c_str(), &st) != 0)
 		return (false);
 	
-	// Create CGI handler
 	CGI*	cgi = new CGI();
-
 	cgi->setupFromRequest(req, script_path, interpreter, doc_root, server->getPort(), server->getServerName());
 
-	// Start CGI execution
 	int			stdin_fd = -1;
 	int			stdout_fd = -1;
 	pid_t		pid = -1;	
 	CGIStatus	status = cgi->executeCgi(stdin_fd, stdout_fd, pid);
-
 	if (status != CGI_SUCCESS)
 	{
 		delete cgi;
 		return (false);
 	}
-
-	// Store CGI state
 	state.cgi_in_progress = true;
 	state.cgi_stdin_fd = stdin_fd;
 	state.cgi_stdout_fd = stdout_fd;
@@ -620,13 +587,8 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 	state.cgi_output.clear();
 	state.cgi_start_time = time(NULL);
 	state.cgi_handler = cgi;
-
-	// Register CGI pipes with poll
-	// stdout for reading CGI output
 	addPollFd(stdout_fd, POLLIN);
 	cgi_fd_to_client[stdout_fd] = client_fd;
-
-	// stdin for writing POST data (only if there's data to write)
 	if (!state.cgi_input.empty())
 	{
 		addPollFd(stdin_fd, POLLOUT);
@@ -634,7 +596,6 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 	}
 	else
 	{
-		// No input data, close stdin immediately
 		close(stdin_fd);
 		state.cgi_stdin_fd = -1;
 	}
