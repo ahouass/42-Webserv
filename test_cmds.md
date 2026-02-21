@@ -251,6 +251,11 @@ Verify file exists:
 ls uploads/
 ```
 
+Upload MultiPart files
+```bash
+curl -v -F "file1=@hello.txt" -F "file2=@empty.txt" http://localhost:8080/uploads/
+```
+
 Download file:
 
 ```bash

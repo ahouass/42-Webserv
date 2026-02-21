@@ -515,31 +515,16 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 
 	if (!mutable_req.parseMultipart())
 	{
-		// Provide more detailed error information
-		std::string			boundary = req.getBoundary();
-		std::ostringstream	error_msg;
-
-		error_msg << "{\"status\":\"error\",\"message\":\"Failed to parse multipart data\"";
-		if (boundary.empty())
-			error_msg << ",\"detail\":\"No boundary found in Content-Type header\"";
-		else
-		{
-			error_msg << ",\"detail\":\"Boundary parsing failed. Check data format.\"";
-			error_msg << ",\"boundary\":\"" << boundary << "\"";
-		}
-		error_msg << ",\"body_size\":" << req.getBody().length() << "}";
-		
 		Response	res;
 		res.setStatus(400, "Bad Request");
-		res.setHeader("Content-Type", "application/json");
-		res.setBody(error_msg.str());
+		res.setHeader("Content-Type", "text/html");
+		res.setBody("<html><body><h1>400 Bad Request</h1><p>Invalid multipart form data.</p></body></html>");
 		return (res);
 	}
 
 	const std::vector<MultipartPart>&	parts = req.getParts();
 	std::string							upload_dir = getUploadPath(location);
 
-	// Create upload directory if it doesn't exist
 	mkdir(upload_dir.c_str(), 0755);
 
 	int							files_saved = 0;
@@ -549,12 +534,8 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 	{
 		const MultipartPart&	part = parts[i];
 
-		// Only process file uploads
-		if (!part.is_file)
-			continue ;
-		if (part.filename.empty())
-			continue ;
-		if (part.data.empty())
+		// Only process valid file parts (accept empty content too)
+		if (!part.is_file || part.filename.empty())
 			continue ;
 
 		// Generate unique filename if file already exists
@@ -576,26 +557,20 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 			file_path = new_name.str();
 			suffix++;
 		}
-		if (writeFile(file_path, part.data))
-		{
-			files_saved++;
-
-			// Extract just the filename from the path
-			size_t		last_slash = file_path.find_last_of('/');
-			std::string	saved_name = (last_slash != std::string::npos) ? file_path.substr(last_slash + 1) : file_path;
-
-			saved_files.push_back(saved_name);
-		}
-		else
+		if (!writeFile(file_path, part.data))
 			return (serve500());
+		files_saved++;
+		size_t		last_slash = file_path.find_last_of('/');
+		std::string	saved_name = (last_slash != std::string::npos) ? file_path.substr(last_slash + 1) : file_path;
+		saved_files.push_back(saved_name);
 	}
 	if (files_saved == 0)
 	{
 		Response	res;
 
 		res.setStatus(400, "Bad Request");
-		res.setHeader("Content-Type", "application/json");
-		res.setBody("{\"status\":\"error\",\"message\":\"No files found in upload. Make sure the form field is a file input.\"}");
+		res.setHeader("Content-Type", "text/html");
+		res.setBody("<html><body><h1>400 Bad Request</h1><p>No valid files found in upload.</p></body></html>");
 		return (res);
 	}
 
