@@ -377,24 +377,19 @@ void	ServerManager::handleClientWrite(int client_fd)
 	// If no response is ready, nothing to write
 	if (!state.response_ready || state.response_buffer.empty())
 		return ;
-	
-	// Calculate remaining data to send
+
 	size_t	remaining = state.response_buffer.length() - state.bytes_sent;
 
 	if (remaining > 0)
 	{
-		// ONE write per POLLOUT event (poll() indicated readiness)
 		const char*	data = state.response_buffer.c_str() + state.bytes_sent;
 		ssize_t		bytes_written = write(client_fd, data, remaining);
 
-		// > 0: update bytes_sent, == 0: close, < 0: close (do NOT check errno)
 		if (bytes_written <= 0)
 		{
 			closeClient(client_fd);
 			return ;
 		}
-
-		// Update bytes sent
 		state.bytes_sent += bytes_written;
 	}
 

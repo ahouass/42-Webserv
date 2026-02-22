@@ -134,8 +134,7 @@ std::string	Server::buildFilePath(const std::string& uri, const LocationConfig* 
 		return (base_path + relative_path);
 	}
 
-	// Build full path - keep the URI path as-is
-	std::string full_path = base_path + uri;
+	std::string	full_path = base_path + uri;
 	return (full_path);
 }
 
@@ -143,20 +142,16 @@ Response	Server::serveFile(const std::string& path, const LocationConfig* locati
 {
 	(void)location;
 
-	// Check read permission before opening
 	if (access(path.c_str(), R_OK) != 0)
 		return (serve403());
 
 	Response	res;
 	std::string	content = readFile(path);
-
 	if (content.empty())
 	{
-		// File exists (caller checked) but read returned empty - could be truly empty or read error
 		struct stat	st;
 		if (stat(path.c_str(), &st) == 0 && st.st_size > 0)
 			return (serve500());
-		// File is genuinely empty, serve it
 	}
 	res.setStatus(200, "OK");
 	res.setHeader("Content-Type", Response::getContentType(path));
@@ -212,9 +207,7 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 		html << "<h1>Index of " << uri_path << "</h1>\n";
 		html << "<ul>\n";
 
-		// Read directory contents
 		DIR*	dir = opendir(fs_path.c_str());
-
 		if (dir)
 		{
 			struct dirent*	entry;
@@ -222,12 +215,10 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 			while ((entry = readdir(dir)) != NULL)
 			{
 				std::string	name = entry->d_name;
+				std::string	href;
 
-				// Skip . but show ..
 				if (name == ".")
 					continue ;
-
-				std::string	href;
 				if (name == "..")
 					href = "../";
 				else
@@ -236,7 +227,6 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 					if (entry->d_type == DT_DIR)
 						href += "/";
 				}
-
 				html << "<li><a href=\"" << href << "\">" << name;
 				if (entry->d_type == DT_DIR)
 					html << "/";
@@ -248,7 +238,7 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 		res.setBody(html.str());
 		return (res);
 	}
-	// No index file and autoindex disabled = 404 Not Found
+	// No index file and autoindex disabled
 	return (serve404());
 }
 
@@ -350,7 +340,6 @@ std::string	Server::readFile(const std::string& path)
 		return ("");
 
 	std::stringstream	buffer;
-
 	buffer << file.rdbuf();
 	file.close();
 	return (buffer.str());
@@ -456,20 +445,15 @@ Response	Server::handleNonCGIRequest(const Request& req)
 	// Build file path for GET
 	std::string	file_path = buildFilePath(req.getPath(), location);
 
-	// Check if path exist
 	if (!fileExists(file_path))
 		return (serve404());
-	
-	// Check if it's a directory
 	if (isDirectory(file_path))
 	{
-		std::string uri = req.getPath();
+		std::string	uri = req.getPath();
 		if (!uri.empty() && uri[uri.size() - 1] != '/')
 			return (serveRedirect(301, uri + "/"));
 		return (serveDirectory(file_path, req.getPath(), location));
 	}
-
-	// It's a file, serve it
 	return (serveFile(file_path, location));
 }
 
@@ -600,7 +584,6 @@ Response	Server::handleRawUpload(const Request& req, const LocationConfig* locat
 	if (!writeFile(file_path, body))
 		return (serve500());
 
-	// Return 201 Created with Location header (nginx-like behavior)
 	Response	res;
 	res.setStatus(201, "Created");
 	res.setHeader("Content-Length", "0");
@@ -641,7 +624,6 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 		if (uri.find(location->path) == 0)
 		{
 			filename = uri.substr(location->path.length());
-			// Remove leading slash if present
 			if (!filename.empty() && filename[0] == '/')
 				filename = filename.substr(1);
 		}
@@ -652,11 +634,9 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 	else
 		file_path = buildFilePath(req.getPath(), location);	// Fall back to regular file path building
 
-	// Check if file exists
 	if (!fileExists(file_path))
 		return (serve404());
 
-	// Don't allow deleting directories (for safety)
 	if (isDirectory(file_path))
 		return (serve403());
 
@@ -671,11 +651,9 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 	if (!in_root && !in_upload)
 		return (serve403());
 
-	// Attempt to delete the file
 	if (!deleteFile(file_path))
 		return (serve500());
 
-	// Return 204 No Content (nginx-like behavior)
 	Response	res;
 	res.setStatus(204, "No Content");
 	res.setHeader("Content-Length", "0");

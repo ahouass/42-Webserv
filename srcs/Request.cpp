@@ -4,7 +4,6 @@
 #include <cstdlib>
 #include <algorithm>
 
-// Base64 decoding table
 static const std::string	base64_chars = 
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	"abcdefghijklmnopqrstuvwxyz"
@@ -579,12 +578,10 @@ void	Request::parseContentType(const std::string& header, std::string& mime_type
 		mime_type = trimmed;
 }
 
-// Helper to find boundary position accounting for binary data
 bool	Request::findBoundaryPosition(const std::string& data, const std::string& boundary, size_t start, size_t& pos) const
 {
 	std::string delimiter = "--" + boundary;
 
-	// Use memmem-like search for binary safety
 	pos = data.find(delimiter, start);
 	return (pos != std::string::npos);
 }
