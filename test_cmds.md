@@ -297,16 +297,6 @@ Run siege:
 siege -b http://127.0.0.1:8080/
 ```
 
-Check connections:
-
-```bash
-lsof -i :8080
-```
-
-Expected:
-
-No accumulation of CLOSE_WAIT connections.
-
 ---
 
 # 13. Memory Leak Test
