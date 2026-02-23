@@ -20,13 +20,21 @@ int	main(int argc, char** argv)
 {
 	signal(SIGINT, signalHandler);
 	signal(SIGPIPE, SIG_IGN);
-	if (argc != 2)
+
+	std::string	config_file;
+	if (argc == 1)
 	{
-		std::cerr << "Usage: " << argv[0] << " <config_file>" << std::endl;
+		config_file = "config/default.conf";
+		std::cout << "Using default config: " << config_file << std::endl;
+	}
+	else if (argc == 2)
+		config_file = argv[1];
+	else
+	{
+		std::cerr << "Usage: " << argv[0] << " [configuration file]" << std::endl;
 		return (1);
 	}
 
-	std::string	config_file = argv[1];
 	Config		config;
 	if (!config.parse(config_file))
 	{
