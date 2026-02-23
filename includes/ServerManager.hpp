@@ -17,22 +17,22 @@
 struct	ClientState
 {
 	Request		request;
-	std::string	response_buffer;	// Buffer for outgoing response
-	size_t		bytes_sent;			// How many bytes have been sent
+	std::string	response_buffer;
+	size_t		bytes_sent;
 	int			server_index;
 	bool		response_ready;
-	time_t		last_activity;		// Timestamp of last activity
-	bool		keep_alive;			// Whether to keep connection alive after response
+	time_t		last_activity;
+	bool		keep_alive;
 	
 	bool		cgi_in_progress;
-	int			cgi_stdin_fd;			// Pipe to write POST data to CGI
-	int			cgi_stdout_fd;			// Pipe to read CGI output from
-	pid_t		cgi_pid;				// CGI process ID
-	std::string	cgi_input;				// POST data to send to CGI
-	size_t		cgi_input_sent;			// Bytes of POST data already sent
-	std::string	cgi_output;				// Collected CGI output
-	time_t		cgi_start_time;			// For timeout detection
-	CGI*		cgi_handler;			// CGI context for building response
+	int			cgi_stdin_fd;
+	int			cgi_stdout_fd;
+	pid_t		cgi_pid;
+	std::string	cgi_input;
+	size_t		cgi_input_sent;
+	std::string	cgi_output;
+	time_t		cgi_start_time;
+	CGI*		cgi_handler;
 	
 	ClientState() : bytes_sent(0), server_index(-1), response_ready(false), last_activity(time(NULL)), keep_alive(true), cgi_in_progress(false), cgi_stdin_fd(-1), cgi_stdout_fd(-1), cgi_pid(-1), cgi_input_sent(0), cgi_start_time(0), cgi_handler(NULL) {}
 };
