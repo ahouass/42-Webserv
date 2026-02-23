@@ -1,11 +1,14 @@
-#!/usr/bin/php-cgi
+#!/usr/bin/php
 <?php
-header("Content-Type: text/html; charset=utf-8");
+echo "Content-Type: text/html; charset=utf-8\r\n";
+echo "\r\n"; 
 
 // Get current date for footer
 $current_date = date('Y-m-d H:i:s');
 $php_version = phpversion();
 $php_version_short = substr($php_version, 0, strpos($php_version, '-') ?: strlen($php_version));
+
+// Output the FULL HTML document
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -353,6 +356,10 @@ $php_version_short = substr($php_version, 0, strpos($php_version, '-') ?: strlen
             </div>
         </div>
 
+        <!-- Rest of your body content remains exactly the same -->
+        <!-- ... -->
+
+
         <!-- Stats Grid -->
         <div class="stats-grid">
             <div class="stat-card">
@@ -516,7 +523,7 @@ $php_version_short = substr($php_version, 0, strpos($php_version, '-') ?: strlen
                 <span class="card-title">Navigation</span>
             </div>
             <div class="btn-group">
-                <a href="/cgi-bin/bash.sh" class="btn">Bash CGI</a>
+                <a href="/cgi-bin/sysinfo.sh" class="btn">Bash CGI</a>
                 <a href="/cgi-bin/info.pl" class="btn">Perl CGI</a>
                 <a href="/cgi-bin/test.py" class="btn">Python CGI</a>
                 <a href="/cgi-bin/" class="btn">Test Center</a>
