@@ -18,7 +18,6 @@ ServerManager::~ServerManager()
 
 bool	ServerManager::initServers(const std::vector<ServerConfig>& configs)
 {
-	// Track which ports have been bound (for virtual hosting support)
 	std::map<int, int>	port_to_server_index;
 
 	for (size_t i = 0; i < configs.size(); i++)
@@ -34,9 +33,7 @@ bool	ServerManager::initServers(const std::vector<ServerConfig>& configs)
 			continue ;
 		}
 
-		// New port - create and bind
 		Server*	server = new Server(configs[i]);
-
 		if (!server->start())
 		{
 			std::cerr << "Failed to start server on port " << port << std::endl;
@@ -46,7 +43,6 @@ bool	ServerManager::initServers(const std::vector<ServerConfig>& configs)
 		servers.push_back(server);
 		port_to_server_index[port] = i;
 
-		// Add server socket to poll
 		int	server_fd = server->getServerFd();
 
 		addPollFd(server_fd, POLLIN);
@@ -70,7 +66,6 @@ void	ServerManager::run()
 			break ;
 		}
 
-		// Periodically check for timed-out connections
 		if (time(NULL) - last_timeout_check >= 5)
 		{
 			checkTimeouts();
@@ -80,14 +75,12 @@ void	ServerManager::run()
 		if (activity == 0)
 			continue ;
 
-		// accept on ALL listening sockets immediately
 		for (size_t i = 0; i < poll_fds.size(); i++)
 		{
 			if (poll_fds[i].revents & POLLIN && server_fds.find(poll_fds[i].fd) != server_fds.end())
 				handleNewConnection(fd_to_server[poll_fds[i].fd]);
 		}
 
-		// Handle client sockets and CGI pipes
 		for (size_t i = 0; i < poll_fds.size(); i++)
 		{
 			int		fd = poll_fds[i].fd;
@@ -105,11 +98,10 @@ void	ServerManager::run()
 				std::map<int, ClientState>::iterator	state_it = client_states.find(client_fd);
 				if (state_it == client_states.end())
 				{
-					// Client gone, cleanup CGI pipe
 					removePollFd(fd);
 					close(fd);
 					cgi_fd_to_client.erase(fd);
-					i--;	// Entry removed, adjust index
+					i--;
 					continue ;
 				}
 
@@ -142,15 +134,13 @@ void	ServerManager::run()
 				continue ;
 			}
 
-			// Error/hangup on client fds
 			if (revents & (POLLERR | POLLNVAL))
 			{
 				closeClient(fd);
-				i--;			// Entry removed, adjust index
+				i--;
 				continue ;
 			}
 
-			// Read events (POLLIN)
 			if (revents & POLLIN)
 			{
 				if (client_states.find(fd) != client_states.end())
@@ -161,7 +151,6 @@ void	ServerManager::run()
 			if (client_states.find(fd) == client_states.end())
 				continue ;
 
-			// Write events (POLLOUT)
 			if (revents & POLLOUT)
 				handleClientWrite(fd);
 
@@ -171,7 +160,7 @@ void	ServerManager::run()
 				if (client_states.find(fd) != client_states.end())
 				{
 					closeClient(fd);
-					i--;	// Entry removed, adjust index
+					i--;
 				}
 			}
 		}
@@ -183,20 +172,17 @@ void	ServerManager::handleNewConnection(int server_index)
 	Server*	server = servers[server_index];
 	int		server_fd = server->getServerFd();
 
-	// This is called only when poll() indicated POLLIN on the listening socket.
 	while (true)
 	{
 		int	client_fd = accept(server_fd, NULL, NULL);
 
-		if (client_fd < 0)	// No more pending connections
+		if (client_fd < 0)
 			break ;
 		fcntl(client_fd, F_SETFL, O_NONBLOCK);
 
-		// Register for POLLIN only; POLLOUT is enabled when response is ready
 		addPollFd(client_fd, POLLIN);
 		fd_to_server[client_fd] = server_index;
 
-		// Initialize client state for incremental parsing
 		ClientState	state;
 		state.server_index = server_index;
 		client_states[client_fd] = state;
@@ -205,7 +191,6 @@ void	ServerManager::handleNewConnection(int server_index)
 
 void	ServerManager::handleClientRequest(int client_fd)
 {
-	// Get client state first
 	std::map<int, ClientState>::iterator	it = client_states.find(client_fd);
 
 	if (it == client_states.end())
@@ -215,19 +200,15 @@ void	ServerManager::handleClientRequest(int client_fd)
 		return ;
 	}
 
-	// If response is already ready, don't read more (wait for write to complete)
 	if (it->second.response_ready)
 		return ;
 
-	// If CGI is in progress, don't read from client (wait for CGI to complete)
 	if (it->second.cgi_in_progress)
 		return ;
 
-	// ONE read per POLLIN event
 	char	buffer[8192];
 	ssize_t	bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-	
-	// > 0: append data, == 0: peer closed, < 0: close
+
 	if (bytes_read <= 0)
 	{
 		closeClient(client_fd);
@@ -237,7 +218,7 @@ void	ServerManager::handleClientRequest(int client_fd)
 
 	ClientState&	state = it->second;
 
-	state.last_activity = time(NULL);	// Update activity timestamp
+	state.last_activity = time(NULL);
 
 	Request&	req = state.request;
 
@@ -271,13 +252,11 @@ void	ServerManager::handleClientRequest(int client_fd)
 			return ;
 		}
 
-		// Check body size limit early
 		Server*	server = servers[state.server_index];
 		size_t	max_size = server->getConfig().client_max_body_size;
 
 		if (req.getContentLength() > max_size)
 		{
-			// Queue 413 response and close after sending
 			state.keep_alive = false;
 			Response	res;
 			res.setStatus(413, "Payload Too Large");
@@ -289,15 +268,12 @@ void	ServerManager::handleClientRequest(int client_fd)
 		}
 	}
 
-	// Check if request is complete (headers + full body)
 	if (!req.isComplete())
-		return;	// Still waiting for body data
+		return;
 	
 	// Request is complete, process it
-	// Determine keep-alive behavior from Connection header
 	std::string	conn_header = req.getHeader("Connection");
 
-	// Case-insensitive comparison
 	for (size_t ci = 0; ci < conn_header.length(); ci++)
 		conn_header[ci] = tolower(conn_header[ci]);
 	if (conn_header == "close")
@@ -374,7 +350,6 @@ void	ServerManager::handleClientWrite(int client_fd)
 
 	ClientState&	state = it->second;
 
-	// If no response is ready, nothing to write
 	if (!state.response_ready || state.response_buffer.empty())
 		return ;
 
@@ -401,7 +376,6 @@ void	ServerManager::handleClientWrite(int client_fd)
 			closeClient(client_fd);
 			return ;
 		}
-		// Reset for next request (keep-alive)
 		state.request.reset();
 		state.response_buffer.clear();
 		state.bytes_sent = 0;
@@ -426,7 +400,7 @@ void	ServerManager::updatePollEvents(int fd, short events)
 
 void	ServerManager::closeClient(int client_fd)
 {
-	cleanupCGI(client_fd);	// Cleanup any ongoing CGI first
+	cleanupCGI(client_fd);
 	removePollFd(client_fd);
 	fd_to_server.erase(client_fd);
 	client_states.erase(client_fd);
@@ -438,27 +412,21 @@ void	ServerManager::checkTimeouts()
 	time_t				now = time(NULL);
 	std::vector<int>	to_close;
 	std::vector<int>	cgi_timeout;
-	
-	// Find all timed-out connections and CGI processes
+
 	for (std::map<int, ClientState>::iterator it = client_states.begin(); it != client_states.end(); ++it)
 	{
-		// Check connection timeout
 		if (now - it->second.last_activity > CONNECTION_TIMEOUT)
 			to_close.push_back(it->first);
-
-		// Check CGI timeout
 		else if (it->second.cgi_in_progress && now - it->second.cgi_start_time > CGI_TIMEOUT)
 			cgi_timeout.push_back(it->first);
 	}
 
-	// Handle CGI timeouts
 	for (size_t i = 0; i < cgi_timeout.size(); i++)
 	{
 		std::cerr << "CGI timeouted after " << CGI_TIMEOUT << " seconds for client " << cgi_timeout[i] << std::endl;
 		finishCGI(cgi_timeout[i], false);
 	}
 
-	// Close timed-out connections
 	for (size_t i = 0; i < to_close.size(); i++)
 		closeClient(to_close[i]);
 }
@@ -487,7 +455,6 @@ void	ServerManager::removePollFd(int fd)
 
 void	ServerManager::stop()
 {
-	// Close all client connections
 	for (size_t i = 0; i < poll_fds.size(); i++)
 	{
 		int fd = poll_fds[i].fd;
@@ -500,7 +467,6 @@ void	ServerManager::stop()
 	fd_to_server.clear();
 	client_states.clear();
 
-	// Delete all servers
 	for (size_t i = 0; i < servers.size(); i++)
 		delete servers[i];
 	servers.clear();
@@ -573,6 +539,7 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 		delete cgi;
 		return (false);
 	}
+	
 	state.cgi_in_progress = true;
 	state.cgi_stdin_fd = stdin_fd;
 	state.cgi_stdout_fd = stdout_fd;
@@ -584,6 +551,7 @@ bool	ServerManager::startCGI(int client_fd, const Request& req, Server* server, 
 	state.cgi_handler = cgi;
 	addPollFd(stdout_fd, POLLIN);
 	cgi_fd_to_client[stdout_fd] = client_fd;
+
 	if (!state.cgi_input.empty())
 	{
 		addPollFd(stdin_fd, POLLOUT);
@@ -613,11 +581,9 @@ void	ServerManager::handleCGIWrite(int cgi_stdin_fd)
 
 	ClientState&	state = it->second;
 
-	// Calculate remaining data to write
 	size_t	remaining = state.cgi_input.length() - state.cgi_input_sent;
 	if (remaining == 0)
 	{
-		// All data sent, close stdin to signal EOF to CGI
 		removePollFd(cgi_stdin_fd);
 		cgi_fd_to_client.erase(cgi_stdin_fd);
 		close(cgi_stdin_fd);
@@ -625,13 +591,11 @@ void	ServerManager::handleCGIWrite(int cgi_stdin_fd)
 		return ;
 	}
 
-	// Write data (one write per poll cycle)
 	const char*	data = state.cgi_input.c_str() + state.cgi_input_sent;
 	ssize_t		bytes_written = write(cgi_stdin_fd, data, remaining);
 
 	if (bytes_written <= 0)
 	{
-		// Error or would-block, close stdin
 		removePollFd(cgi_stdin_fd);
 		cgi_fd_to_client.erase(cgi_stdin_fd);
 		close(cgi_stdin_fd);
@@ -640,8 +604,6 @@ void	ServerManager::handleCGIWrite(int cgi_stdin_fd)
 	}
 
 	state.cgi_input_sent += bytes_written;
-
-	// Check if all data sent
 	if (state.cgi_input_sent >= state.cgi_input.length())
 	{
 		removePollFd(cgi_stdin_fd);
@@ -667,7 +629,6 @@ void	ServerManager::handleCGIRead(int cgi_stdout_fd)
 
 	ClientState&	state = it->second;
 
-	// Read data (one read per poll cycle)
 	char	buffer[4096];
 	ssize_t	bytes_read = read(cgi_stdout_fd, buffer, sizeof(buffer) - 1);
 
@@ -677,7 +638,7 @@ void	ServerManager::handleCGIRead(int cgi_stdout_fd)
 		state.cgi_output += buffer;
 	}
 	else if (bytes_read == 0)
-		finishCGI(client_fd, true);	// EOF - CGI finished writing
+		finishCGI(client_fd, true);
 }
 
 // Finish CGI execution and send response
@@ -694,7 +655,7 @@ void	ServerManager::finishCGI(int client_fd, bool success)
 	bool	cgi_failed = false;
 	if (state.cgi_pid > 0)
 	{
-		if (!success)	// If we already know CGI failed (timeout, pipe error), kill child first
+		if (!success)
 		{
 			kill(state.cgi_pid, SIGKILL);
 			cgi_failed = true;
@@ -715,10 +676,10 @@ void	ServerManager::finishCGI(int client_fd, bool success)
 	else
 		cgi_failed = true;
 
-	if (!success)	// Also fail if success flag was false (timeout, pipe error, ...)
+	if (!success)
 		cgi_failed = true;
 
-	// Build response
+
 	Response	response;
 
 	if (!cgi_failed && state.cgi_handler && !state.cgi_output.empty())
@@ -737,20 +698,15 @@ void	ServerManager::finishCGI(int client_fd, bool success)
 		response.setBody("<html><body><h1>500 Internal Server Error</h1><p>CGI script failed</p></body></html>");
 	}
 
-	// Set Connection header based on keep-alive decision
 	if (state.keep_alive)
 		response.setHeader("Connection", "keep-alive");
 	else
 		response.setHeader("Connection", "close");
 
-	// Queue response
 	queueResponse(client_fd, response.toString());
-
-	// Cleanup CGI state
 	cleanupCGI(client_fd);
 }
 
-// Cleanup CGI resources
 void	ServerManager::cleanupCGI(int client_fd)
 {
 	std::map<int, ClientState>::iterator	it = client_states.find(client_fd);
@@ -760,7 +716,6 @@ void	ServerManager::cleanupCGI(int client_fd)
 
 	ClientState&	state = it->second;
 
-	// Remove and close CGI stdout pipe
 	if (state.cgi_stdout_fd >= 0)
 	{
 		removePollFd(state.cgi_stdout_fd);
@@ -768,8 +723,7 @@ void	ServerManager::cleanupCGI(int client_fd)
 		close(state.cgi_stdout_fd);
 		state.cgi_stdout_fd = -1;
 	}
-	
-	// Remove and close CGI stdin pipe
+
 	if (state.cgi_stdin_fd >= 0)
 	{
 		removePollFd(state.cgi_stdin_fd);
@@ -777,15 +731,13 @@ void	ServerManager::cleanupCGI(int client_fd)
 		close(state.cgi_stdin_fd);
 		state.cgi_stdin_fd = -1;
 	}
-	
-	// Delete CGI handler
+
 	if (state.cgi_handler)
 	{
 		delete state.cgi_handler;
 		state.cgi_handler = NULL;
 	}
-	
-	// Reset CGI state
+
 	state.cgi_in_progress = false;
 	state.cgi_pid = -1;
 	state.cgi_input.clear();
