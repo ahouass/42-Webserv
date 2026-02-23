@@ -42,22 +42,25 @@ class   ServerManager
 	private:
 		std::vector<Server*>		servers;
 		std::vector<struct pollfd>	poll_fds;
-		std::map<int, int>			fd_to_server;			// Maps fd to server index
-		std::set<int>				server_fds;				// Track which fds are server sockets
-		std::map<int, ClientState>	client_states;			// Track partial requests for each client
-		std::map<int, int>			cgi_fd_to_client;		// Maps CGI pipe fds to client fds
-		
+		std::map<int, int>			fd_to_server;
+		std::set<int>				server_fds;
+		std::map<int, ClientState>	client_states;
+		std::map<int, int>			cgi_fd_to_client;
+
 		void		addPollFd(int fd, short events);
 		void		removePollFd(int fd);
 		void		updatePollEvents(int fd, short events);
+
 		void		handleNewConnection(int server_index);
 		void		handleClientRequest(int client_fd);
 		void		handleClientWrite(int client_fd);
+
 		void		queueResponse(int client_fd, const std::string& response);
 		void		closeClient(int client_fd);
 		void		checkTimeouts();
 		int			findServerByHost(const std::string& host, int port) const;
 		std::string	extractHostname(const std::string& host) const;
+
 		bool		startCGI(int client_fd, const Request& req, Server* server, const LocationConfig* location, const std::string& extension, const std::string& interpreter);
 		void		handleCGIWrite(int cgi_stdin_fd);
 		void		handleCGIRead(int cgi_stdout_fd);

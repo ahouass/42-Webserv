@@ -32,22 +32,17 @@ std::string	Response::toString() const
 {
 	std::ostringstream	response;
 	
-	// Status line
 	response << "HTTP/1.1 " << status_code << " " << status_message << "\r\n";
 	
-	// Headers
 	for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it)
 		response << it->first << ": " << it->second << "\r\n";
 
-	// Empty line separates headers from body
 	response << "\r\n";
 
-	// Body
 	response << body;
 	return (response.str());
 }
 
-// Get Content-Type based on file extension
 std::string	Response::getContentType(const std::string& path)
 {
 	// Find the extension
@@ -58,7 +53,6 @@ std::string	Response::getContentType(const std::string& path)
 	
 	std::string	ext = path.substr(dot_pos);
 	
-	// Map extensions to MIME types
 	if (ext == ".html" || ext == ".htm")
 		return ("text/html");
 	else if (ext == ".css")

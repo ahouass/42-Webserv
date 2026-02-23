@@ -171,7 +171,6 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 	if (fileExists(index_path))
 		return (serveFile(index_path, location));
 
-	// If autoindex is enabled, show directory listing
 	if (location && location->autoindex)
 	{
 		Response	res;
@@ -184,7 +183,6 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 		if (!base.empty() && base[base.size() - 1] != '/')
 			base += '/';
 
-		// Generate directory listing HTML
 		std::ostringstream	html;
 
 		html << "<!DOCTYPE html>\n";
@@ -233,7 +231,6 @@ Response	Server::serveDirectory(const std::string& fs_path, const std::string& u
 		res.setBody(html.str());
 		return (res);
 	}
-	// No index file and autoindex disabled
 	return (serve404());
 }
 
@@ -244,7 +241,6 @@ Response	Server::serveErrorPage(int code, const std::string& message)
 	res.setStatus(code, message);
 	res.setHeader("Content-Type", "text/html");
 
-	// Check if custom error page exists
 	std::map<int, std::string>::const_iterator	it = config.error_pages.find(code);
 
 	if (it != config.error_pages.end())
@@ -260,7 +256,6 @@ Response	Server::serveErrorPage(int code, const std::string& message)
 		}
 	}
 
-	// Default error page
 	std::ostringstream	html;
 
 	html << "<!DOCTYPE html>\n";
@@ -524,7 +519,6 @@ Response	Server::handleMultipartUpload(const Request& req, const LocationConfig*
 		return (res);
 	}
 
-	// Return 201 Created with Location header (nginx-like behavior)
 	Response	res;
 	res.setStatus(201, "Created");
 	res.setHeader("Content-Length", "0");
@@ -609,7 +603,6 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 {
 	std::string	file_path;
 
-	// If location has upload_store, use it as base for DELETE
 	if (location && !location->upload_store.empty())
 	{
 		// Extract filename from URI (remove location prefix)
@@ -627,7 +620,7 @@ Response	Server::handleDelete(const Request& req, const LocationConfig* location
 		file_path = location->upload_store + "/" + filename;
 	}
 	else
-		file_path = buildFilePath(req.getPath(), location);	// Fall back to regular file path building
+		file_path = buildFilePath(req.getPath(), location);
 
 	if (!fileExists(file_path))
 		return (serve404());
